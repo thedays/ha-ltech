@@ -1,0 +1,155 @@
+package com.ltech.smarthome.databinding;
+
+import android.util.SparseIntArray;
+import android.view.View;
+import android.widget.LinearLayout;
+import androidx.appcompat.widget.AppCompatImageView;
+import androidx.appcompat.widget.AppCompatTextView;
+import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.databinding.DataBindingComponent;
+import androidx.databinding.ViewDataBinding;
+import androidx.databinding.adapters.TextViewBindingAdapter;
+import androidx.lifecycle.LiveData;
+import com.jaygoo.widget.RangeSeekBar;
+import com.ltech.smarthome.R;
+import com.ltech.smarthome.binding.command.BindingCommand;
+import com.ltech.smarthome.binding.view.ViewAdapter;
+import com.ltech.smarthome.ui.item.SelectItem;
+
+/* loaded from: classes3.dex */
+public class ItemSelectKValueBindingImpl extends ItemSelectKValueBinding {
+    private static final ViewDataBinding.IncludedLayouts sIncludes = null;
+    private static final SparseIntArray sViewsWithIds;
+    private long mDirtyFlags;
+    private final LinearLayout mboundView0;
+
+    static {
+        SparseIntArray sparseIntArray = new SparseIntArray();
+        sViewsWithIds = sparseIntArray;
+        sparseIntArray.put(R.id.sb_brt, 5);
+        sparseIntArray.put(R.id.layout_brt, 6);
+        sparseIntArray.put(R.id.tv_k_right, 7);
+        sparseIntArray.put(R.id.tv_k_left, 8);
+    }
+
+    public ItemSelectKValueBindingImpl(DataBindingComponent bindingComponent, View root) {
+        this(bindingComponent, root, mapBindings(bindingComponent, root, 9, sIncludes, sViewsWithIds));
+    }
+
+    private ItemSelectKValueBindingImpl(DataBindingComponent bindingComponent, View root, Object[] bindings) {
+        super(bindingComponent, root, 1, (AppCompatImageView) bindings[4], (ConstraintLayout) bindings[6], (ConstraintLayout) bindings[1], (RangeSeekBar) bindings[5], (AppCompatTextView) bindings[8], (AppCompatTextView) bindings[7], (AppCompatTextView) bindings[2], (AppCompatTextView) bindings[3]);
+        this.mDirtyFlags = -1L;
+        this.ivSelect.setTag(null);
+        this.layoutItem.setTag(null);
+        LinearLayout linearLayout = (LinearLayout) bindings[0];
+        this.mboundView0 = linearLayout;
+        linearLayout.setTag(null);
+        this.tvName.setTag(null);
+        this.tvSubName.setTag(null);
+        setRootTag(root);
+        invalidateAll();
+    }
+
+    @Override // androidx.databinding.ViewDataBinding
+    public void invalidateAll() {
+        synchronized (this) {
+            this.mDirtyFlags = 4L;
+        }
+        requestRebind();
+    }
+
+    @Override // androidx.databinding.ViewDataBinding
+    public boolean hasPendingBindings() {
+        synchronized (this) {
+            return this.mDirtyFlags != 0;
+        }
+    }
+
+    @Override // androidx.databinding.ViewDataBinding
+    public boolean setVariable(int variableId, Object variable) {
+        if (40 != variableId) {
+            return false;
+        }
+        setItem((SelectItem) variable);
+        return true;
+    }
+
+    @Override // com.ltech.smarthome.databinding.ItemSelectKValueBinding
+    public void setItem(SelectItem Item) {
+        this.mItem = Item;
+        synchronized (this) {
+            this.mDirtyFlags |= 2;
+        }
+        notifyPropertyChanged(40);
+        super.requestRebind();
+    }
+
+    @Override // androidx.databinding.ViewDataBinding
+    protected boolean onFieldChange(int localFieldId, Object object, int fieldId) {
+        if (localFieldId != 0) {
+            return false;
+        }
+        return onChangeItemSelect((LiveData) object, fieldId);
+    }
+
+    private boolean onChangeItemSelect(LiveData<Boolean> ItemSelect, int fieldId) {
+        if (fieldId != 0) {
+            return false;
+        }
+        synchronized (this) {
+            this.mDirtyFlags |= 1;
+        }
+        return true;
+    }
+
+    @Override // androidx.databinding.ViewDataBinding
+    protected void executeBindings() {
+        long j;
+        String str;
+        String str2;
+        int i;
+        BindingCommand bindingCommand;
+        synchronized (this) {
+            j = this.mDirtyFlags;
+            this.mDirtyFlags = 0L;
+        }
+        SelectItem selectItem = this.mItem;
+        long j2 = j & 7;
+        BindingCommand bindingCommand2 = null;
+        if (j2 != 0) {
+            if ((j & 6) == 0 || selectItem == null) {
+                str = null;
+                bindingCommand = null;
+                str2 = null;
+            } else {
+                str = selectItem.getSubName();
+                bindingCommand = selectItem.getAction();
+                str2 = selectItem.getName();
+            }
+            LiveData<Boolean> isSelect = selectItem != null ? selectItem.isSelect() : null;
+            updateLiveDataRegistration(0, isSelect);
+            boolean safeUnbox = ViewDataBinding.safeUnbox(isSelect != null ? isSelect.getValue() : null);
+            if (j2 != 0) {
+                j |= safeUnbox ? 16L : 8L;
+            }
+            i = safeUnbox ? R.mipmap.ic_tick_sel : R.mipmap.ic_tick_default;
+            bindingCommand2 = bindingCommand;
+        } else {
+            str = null;
+            str2 = null;
+            i = 0;
+        }
+        if ((7 & j) != 0) {
+            ViewAdapter.setBackground(this.ivSelect, i);
+        }
+        if ((j & 6) != 0) {
+            ViewAdapter.onClickCommand(this.layoutItem, bindingCommand2, false);
+            TextViewBindingAdapter.setText(this.tvName, str2);
+            TextViewBindingAdapter.setText(this.tvSubName, str);
+        }
+        if ((j & 4) != 0) {
+            ViewAdapter.setTextBold(this.tvName, true);
+            ViewAdapter.setTextBold(this.tvSubName, true);
+        }
+    }
+}

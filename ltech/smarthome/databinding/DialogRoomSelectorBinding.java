@@ -1,0 +1,66 @@
+package com.ltech.smarthome.databinding;
+
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import androidx.appcompat.widget.AppCompatTextView;
+import androidx.databinding.Bindable;
+import androidx.databinding.DataBindingUtil;
+import androidx.databinding.ViewDataBinding;
+import androidx.recyclerview.widget.RecyclerView;
+import com.ltech.smarthome.R;
+import com.ltech.smarthome.binding.command.BindingCommand;
+
+/* loaded from: classes3.dex */
+public abstract class DialogRoomSelectorBinding extends ViewDataBinding {
+
+    @Bindable
+    protected BindingCommand<View> mClickCommand;
+    public final RecyclerView pickViewFloor;
+    public final RecyclerView pickerViewRoom;
+    public final AppCompatTextView tvCancel;
+    public final AppCompatTextView tvFinish;
+    public final AppCompatTextView tvTitle;
+
+    public abstract void setClickCommand(BindingCommand<View> clickCommand);
+
+    protected DialogRoomSelectorBinding(Object _bindingComponent, View _root, int _localFieldCount, RecyclerView pickViewFloor, RecyclerView pickerViewRoom, AppCompatTextView tvCancel, AppCompatTextView tvFinish, AppCompatTextView tvTitle) {
+        super(_bindingComponent, _root, _localFieldCount);
+        this.pickViewFloor = pickViewFloor;
+        this.pickerViewRoom = pickerViewRoom;
+        this.tvCancel = tvCancel;
+        this.tvFinish = tvFinish;
+        this.tvTitle = tvTitle;
+    }
+
+    public BindingCommand<View> getClickCommand() {
+        return this.mClickCommand;
+    }
+
+    public static DialogRoomSelectorBinding inflate(LayoutInflater inflater, ViewGroup root, boolean attachToRoot) {
+        return inflate(inflater, root, attachToRoot, DataBindingUtil.getDefaultComponent());
+    }
+
+    @Deprecated
+    public static DialogRoomSelectorBinding inflate(LayoutInflater inflater, ViewGroup root, boolean attachToRoot, Object component) {
+        return (DialogRoomSelectorBinding) ViewDataBinding.inflateInternal(inflater, R.layout.dialog_room_selector, root, attachToRoot, component);
+    }
+
+    public static DialogRoomSelectorBinding inflate(LayoutInflater inflater) {
+        return inflate(inflater, DataBindingUtil.getDefaultComponent());
+    }
+
+    @Deprecated
+    public static DialogRoomSelectorBinding inflate(LayoutInflater inflater, Object component) {
+        return (DialogRoomSelectorBinding) ViewDataBinding.inflateInternal(inflater, R.layout.dialog_room_selector, null, false, component);
+    }
+
+    public static DialogRoomSelectorBinding bind(View view) {
+        return bind(view, DataBindingUtil.getDefaultComponent());
+    }
+
+    @Deprecated
+    public static DialogRoomSelectorBinding bind(View view, Object component) {
+        return (DialogRoomSelectorBinding) bind(component, view, R.layout.dialog_room_selector);
+    }
+}
