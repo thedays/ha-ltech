@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import LtechApiClient
-from .const import CONF_EMAIL, CONF_PASSWORD, CONF_SERVER_URL, DOMAIN
+from .const import CONF_ACCOUNT, CONF_PASSWORD, CONF_SERVER_URL, DOMAIN
 from .coordinator import LtechDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ PLATFORMS = ["light", "switch", "sensor"]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api = LtechApiClient(
         server_url=entry.data[CONF_SERVER_URL],
-        email=entry.data[CONF_EMAIL],
+        email=entry.data[CONF_ACCOUNT],
         password=entry.data[CONF_PASSWORD],
     )
     

@@ -1,6 +1,6 @@
 DOMAIN = "ltech"
 VERSION = "1.0.0"
-CONF_EMAIL = "email"
+CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
 CONF_SERVER_URL = "server_url"
 
