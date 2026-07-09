@@ -44,12 +44,12 @@ class LtechApiClient:
 
     def _aes_encrypt(self, data, key):
         cipher = AES.new(key.encode("utf-8"), AES.MODE_ECB)
-        padded_data = pad(data.encode("utf-8"), AES.block_size)
+        padded_data = pad(data.encode("utf-8"), AES.block_size, style='pkcs7')
         encrypted = cipher.encrypt(padded_data)
-        return encrypted.hex()
+        return encrypted.hex().upper()
 
     def _md5_sign(self, data_str):
-        return hashlib.md5(data_str.encode("utf-8")).hexdigest()
+        return hashlib.md5(data_str.encode("utf-8")).hexdigest().upper()
 
     def _build_request(self, method, data=None):
         timestamp = str(int(time.time() * 1000))
@@ -57,7 +57,7 @@ class LtechApiClient:
         if data is None:
             data = ""
         else:
-            data = json.dumps(data)
+            data = json.dumps(data, separators=(',', ':'))
         
         encrypted_data = self._aes_encrypt(data, self.secret_key)
         
@@ -83,6 +83,8 @@ class LtechApiClient:
             "timestamp": timestamp,
             "v": "2.0",
             "sign": sign,
+            "platform_version": "Android_HA_1.0.0",
+            "system_model": "33_HA",
         }
 
     def _send_request(self, method, data=None):
@@ -98,7 +100,7 @@ class LtechApiClient:
                 raise LtechAuthError("Session expired, need to re-login")
             
             if result.get("ret") != 0:
-                raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')}")
+                raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')} (ret={result.get('ret')})")
             
             return result.get("data", result.get("message"))
         
