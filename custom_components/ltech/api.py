@@ -109,11 +109,11 @@ class LtechApiClient:
 
     def login(self):
         login_data = {
-            "appid": APP_ID_DEFAULT,
-            "account": self.email,
+            "memberid": APP_ID_DEFAULT,
+            "loginname": self.email,
             "pwd": self.password,
-            "type": "3",
-            "pushId": "",
+            "devicetype": "3",
+            "devicesn": "",
         }
         
         result = self._send_request(FUN_URL_LOGIN, login_data)
