@@ -43,7 +43,9 @@ class LtechApiClient:
         self.product_key = None
 
     def _aes_encrypt(self, data, key):
-        cipher = AES.new(key.encode("utf-8"), AES.MODE_ECB)
+        key_bytes = key.encode("utf-8")
+        iv_bytes = key_bytes[:AES.block_size]
+        cipher = AES.new(key_bytes, AES.MODE_CBC, iv_bytes)
         padded_data = pad(data.encode("utf-8"), AES.block_size, style='pkcs7')
         encrypted = cipher.encrypt(padded_data)
         return encrypted.hex().upper()
