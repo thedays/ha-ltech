@@ -59,7 +59,7 @@ class LtechApiClient:
         if data is None:
             data = ""
         else:
-            data = json.dumps(data, separators=(',', ':'), sort_keys=True)
+            data = json.dumps(data, separators=(',', ':'))
         
         encrypted_data = self._aes_encrypt(data, self.secret_key)
         
@@ -111,11 +111,11 @@ class LtechApiClient:
 
     def login(self):
         login_data = {
-            "memberid": APP_ID_DEFAULT,
-            "loginname": self.email,
-            "pwd": self.password,
-            "devicetype": "3",
             "devicesn": "",
+            "devicetype": "3",
+            "loginname": self.email,
+            "memberid": APP_ID_DEFAULT,
+            "pwd": self.password,
         }
         
         result = self._send_request(FUN_URL_LOGIN, login_data)
