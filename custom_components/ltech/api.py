@@ -59,7 +59,7 @@ class LtechApiClient:
         if data is None:
             data = ""
         else:
-            data = json.dumps(data, separators=(',', ':'))
+            data = json.dumps(data, separators=(',', ':'), sort_keys=True)
         
         encrypted_data = self._aes_encrypt(data, self.secret_key)
         
@@ -78,15 +78,15 @@ class LtechApiClient:
         
         return {
             "appid": self.app_id,
-            "method": method,
             "data": encrypted_data,
             "format": "json",
+            "method": method,
+            "platform_version": "Android_3.3.5",
             "session": self.session,
+            "sign": sign,
+            "system_model": "33_HA",
             "timestamp": timestamp,
             "v": "2.0",
-            "sign": sign,
-            "platform_version": "Android_HA_1.0.0",
-            "system_model": "33_HA",
         }
 
     def _send_request(self, method, data=None):
