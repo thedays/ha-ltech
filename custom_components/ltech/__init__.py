@@ -28,12 +28,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
     
+    if coordinator.places:
+        first_place = coordinator.places[0]
+        place_id = first_place.get("placeId") or first_place.get("placeid")
+        await coordinator.start_mesh(place_id)
+    
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator:
+        await coordinator.stop_mesh()
+        coordinator.stop_mqtt()
+    
     unload_ok = all(
         await asyncio.gather(
             *[

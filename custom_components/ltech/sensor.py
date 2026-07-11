@@ -40,6 +40,8 @@ async def async_setup_entry(
         elif "BATTERY" in product_id:
             entities.append(LtechBatterySensor(coordinator, device))
     
+    entities.append(LtechMeshStatusSensor(coordinator))
+    
     async_add_entities(entities)
 
 
@@ -165,3 +167,34 @@ class LtechBatterySensor(LtechSensor):
                         self._state = int(battery_value)
                     except (ValueError, TypeError):
                         pass
+
+
+class LtechMeshStatusSensor(SensorEntity):
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+        self._attr_name = "Ltech Mesh Status"
+        self._attr_unique_id = "ltech_mesh_status"
+        self._attr_device_class = SensorDeviceClass.CONNECTIVITY
+        self._attr_state = "disconnected"
+
+    @property
+    def state(self):
+        if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
+            if self.coordinator.mesh_manager.connected:
+                return "connected"
+        return "disconnected"
+
+    @property
+    def icon(self):
+        if self.state == "connected":
+            return "mdi:bluetooth-connected"
+        return "mdi:bluetooth-off"
+
+    @property
+    def extra_state_attributes(self):
+        attrs = {}
+        if self.coordinator.mesh_manager:
+            attrs["mesh_uuid"] = self.coordinator.mesh_manager.mesh_uuid[:8] + "..." if self.coordinator.mesh_manager.mesh_uuid else None
+            attrs["net_key"] = self.coordinator.mesh_manager.net_key[:8] + "..." if self.coordinator.mesh_manager.net_key else None
+            attrs["app_key"] = self.coordinator.mesh_manager.app_key[:8] + "..." if self.coordinator.mesh_manager.app_key else None
+        return attrs

@@ -1,5 +1,5 @@
 DOMAIN = "ltech"
-VERSION = "1.6.0"
+VERSION = "2.2.0"
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
 CONF_SERVER_URL = "server_url"
@@ -16,10 +16,18 @@ FUN_URL_BASE = "ysnetwork.base.com"
 
 FUN_URL_LOGIN = f"{FUN_URL_BASE}.user.app.login"
 FUN_URL_DEVICE_LIST = "ysnetwork.base.area.device.list"
-FUN_URL_DEVICE_CONTROL = f"{FUN_URL_BASE}.device.controller"
+FUN_URL_DEVICE_CONTROL = "ysnetwork.base.com.app.device.requestcontrol"
 FUN_URL_DEVICE_REQUEST_CONTROL = "ysnetwork.base.com.app.device.requestcontrol"
 FUN_URL_DEVICE_ONLINE_STATUS = f"{FUN_URL_BASE}.app.device.getstatus"
-FUN_URL_PLACE_LIST = f"{FUN_URL_BASE}.place.list"
+FUN_URL_DEVICE_SYNC_STATUS = f"{FUN_URL_BASE}.app.device.syncstatus"
+FUN_URL_DEVICE_SUBSCRIBE = f"{FUN_URL_BASE}.app.device.subscribe"
+FUN_URL_DEVICE_UNSUBSCRIBE = f"{FUN_URL_BASE}.app.device.unsubscribe"
+FUN_URL_PLACE_LIST = f"{FUN_URL_BASE}.area.place.user.list"
+FUN_URL_PLACE_INFO = f"{FUN_URL_BASE}.area.place.info"
+FUN_URL_BIND_USER = f"{FUN_URL_BASE}.deviceparam.binduser"
+
+MQTT_BROKER_CN = "iot-060a5shm.mqtt.iothub.aliyuncs.com"
+MQTT_BROKER_GLOBAL = "iot-600a65gi.mqtt.iothub.aliyuncs.com"
 
 LOGIN_SUCCESS = 0
 LOGIN_FAILED = 10
