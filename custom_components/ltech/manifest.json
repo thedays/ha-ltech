@@ -7,6 +7,6 @@
   "documentation": "https://www.ltech.com.cn/",
   "homekit": {},
   "iot_class": "cloud_push",
-  "requirements": ["pycryptodome>=3.18.0", "requests>=2.31.0", "paho-mqtt==1.6.1", "aliyun-iot-linkkit>=1.2.13", "bleak>=0.21.0"],
-  "version": "2.3.0"
+  "requirements": ["pycryptodome>=3.18.0", "requests>=2.31.0", "aliyun-iot-linkkit>=1.2.13", "bleak>=0.21.0"],
+  "version": "2.3.1"
 }
