@@ -36,8 +36,14 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             if not self.places:
                 self.places = await self.hass.async_add_executor_job(self.api.get_place_list)
             
-            if self.places:
-                first_place = self.places[0]
+            places_list = []
+            if isinstance(self.places, dict) and "rows" in self.places:
+                places_list = self.places["rows"]
+            elif isinstance(self.places, list):
+                places_list = self.places
+            
+            if places_list:
+                first_place = places_list[0]
                 place_id = first_place.get("placeId") or first_place.get("placeid")
                 self.api.select_place(place_id)
                 
