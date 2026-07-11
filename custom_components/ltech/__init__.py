@@ -28,8 +28,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
     
-    if coordinator.places:
-        first_place = coordinator.places[0]
+    places_list = []
+    if isinstance(coordinator.places, dict) and "rows" in coordinator.places:
+        places_list = coordinator.places["rows"]
+    elif isinstance(coordinator.places, list):
+        places_list = coordinator.places
+    
+    if places_list:
+        first_place = places_list[0]
         place_id = first_place.get("placeId") or first_place.get("placeid")
         await coordinator.start_mesh(place_id)
     

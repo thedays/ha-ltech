@@ -40,7 +40,7 @@ async def validate_input(hass: HomeAssistant, data: dict) -> dict:
             return {
                 "title": f"Ltech ({data[CONF_ACCOUNT]})",
                 "session": result.get("session"),
-                "user_id": result.get("userId"),
+                "user_id": result.get("userid"),
             }
         
         raise LtechAuthError("Login failed")

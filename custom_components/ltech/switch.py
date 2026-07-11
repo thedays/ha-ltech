@@ -65,6 +65,21 @@ class LtechSwitch(LtechEntity, SwitchEntity):
         except LtechApiError as e:
             _LOGGER.error("Failed to turn off switch: %s", e)
 
+    def _parse_state_value(self, hex_string):
+        if not isinstance(hex_string, str) or len(hex_string) < 8:
+            return None
+        
+        try:
+            hex_string = hex_string.upper()
+            if hex_string.startswith("66BB") and hex_string.endswith("EB"):
+                data = hex_string[4:-2]
+                if len(data) >= 8:
+                    value_hex = data[-2:]
+                    return int(value_hex, 16)
+            return int(hex_string, 16)
+        except (ValueError, TypeError):
+            return None
+
     async def async_update(self):
         device = self.coordinator.get_device(self.device_id)
         if device:
@@ -74,4 +89,5 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             if isinstance(device_state, dict):
                 state_value = device_state.get("CharSwitch")
                 if state_value is not None:
-                    self._is_on = state_value != "0"
+                    parsed = self._parse_state_value(state_value)
+                    self._is_on = parsed == 1 if parsed is not None else False

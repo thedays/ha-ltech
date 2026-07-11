@@ -137,9 +137,6 @@ class LtechApiClient:
             self.session = result.get("session", self.session)
             self.secret_key = result.get("secretkey", self.secret_key)
             self.user_id = result.get("userid")
-            self.device_name = result.get("deviceName")
-            self.device_secret = result.get("deviceSecret")
-            self.product_key = result.get("productKey")
         
         return result
 

@@ -50,6 +50,21 @@ class LtechSensor(LtechEntity, SensorEntity):
         super().__init__(coordinator, device)
         self._state = None
 
+    def _parse_state_value(self, hex_string):
+        if not isinstance(hex_string, str) or len(hex_string) < 8:
+            return None
+        
+        try:
+            hex_string = hex_string.upper()
+            if hex_string.startswith("66BB") and hex_string.endswith("EB"):
+                data = hex_string[4:-2]
+                if len(data) >= 8:
+                    value_hex = data[-2:]
+                    return int(value_hex, 16)
+            return int(hex_string, 16)
+        except (ValueError, TypeError):
+            return None
+
     @property
     def state(self):
         return self._state
@@ -77,10 +92,9 @@ class LtechTemperatureSensor(LtechSensor):
             if isinstance(device_state, dict):
                 temp_value = device_state.get("CharTemp")
                 if temp_value is not None:
-                    try:
-                        self._state = float(temp_value) / 10.0
-                    except (ValueError, TypeError):
-                        pass
+                    parsed = self._parse_state_value(temp_value)
+                    if parsed is not None:
+                        self._state = float(parsed) / 10.0
 
 
 class LtechHumiditySensor(LtechSensor):
@@ -101,10 +115,9 @@ class LtechHumiditySensor(LtechSensor):
             if isinstance(device_state, dict):
                 humi_value = device_state.get("CharHumidity")
                 if humi_value is not None:
-                    try:
-                        self._state = int(humi_value)
-                    except (ValueError, TypeError):
-                        pass
+                    parsed = self._parse_state_value(humi_value)
+                    if parsed is not None:
+                        self._state = int(parsed)
 
 
 class LtechMotionSensor(LtechSensor):
@@ -121,7 +134,8 @@ class LtechMotionSensor(LtechSensor):
             if isinstance(device_state, dict):
                 motion_value = device_state.get("CharSwitch")
                 if motion_value is not None:
-                    self._state = motion_value == "1"
+                    parsed = self._parse_state_value(motion_value)
+                    self._state = parsed == 1 if parsed is not None else False
 
 
 class LtechDoorSensor(LtechSensor):
@@ -138,7 +152,8 @@ class LtechDoorSensor(LtechSensor):
             if isinstance(device_state, dict):
                 door_value = device_state.get("CharSwitch")
                 if door_value is not None:
-                    self._state = "open" if door_value == "1" else "closed"
+                    parsed = self._parse_state_value(door_value)
+                    self._state = "open" if parsed == 1 else "closed"
 
 
 class LtechBatterySensor(LtechSensor):
@@ -163,10 +178,9 @@ class LtechBatterySensor(LtechSensor):
             if isinstance(device_state, dict):
                 battery_value = device_state.get("CharBattery")
                 if battery_value is not None:
-                    try:
-                        self._state = int(battery_value)
-                    except (ValueError, TypeError):
-                        pass
+                    parsed = self._parse_state_value(battery_value)
+                    if parsed is not None:
+                        self._state = int(parsed)
 
 
 class LtechMeshStatusSensor(SensorEntity):
