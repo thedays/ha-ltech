@@ -44,8 +44,7 @@ class LtechApiClient:
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
-        iv_bytes = key_bytes[:AES.block_size]
-        cipher = AES.new(key_bytes, AES.MODE_CBC, iv_bytes)
+        cipher = AES.new(key_bytes, AES.MODE_ECB)
         padded_data = pad(data.encode("utf-8"), AES.block_size, style='pkcs7')
         encrypted = cipher.encrypt(padded_data)
         return encrypted.hex().upper()
@@ -79,13 +78,13 @@ class LtechApiClient:
         return {
             "appid": self.app_id,
             "data": encrypted_data,
-            "format": "json",
             "method": method,
             "platform_version": "Android_3.3.5",
             "session": self.session,
             "sign": sign,
             "system_model": "33_HA",
             "timestamp": timestamp,
+            "format": "json",
             "v": "2.0",
         }
 
