@@ -1,8 +1,13 @@
 import asyncio
 import logging
+import warnings
+
+import urllib3
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 from .api import LtechApiClient
 from .const import CONF_ACCOUNT, CONF_PASSWORD, CONF_SERVER_URL, DOMAIN

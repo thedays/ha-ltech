@@ -52,10 +52,11 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 
                 if isinstance(device_list, dict) and "rows" in device_list:
-                    self.devices = {
-                        device["deviceId"]: device
-                        for device in device_list["rows"]
-                    }
+                    self.devices = {}
+                    for device in device_list["rows"]:
+                        device_id = device.get("deviceId") or device.get("deviceid")
+                        if device_id:
+                            self.devices[device_id] = device
                     return self.devices
             
             return self.devices

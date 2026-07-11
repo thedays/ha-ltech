@@ -157,7 +157,12 @@ class LtechLight(LtechEntity, LightEntity):
     def _get_mesh_address(self):
         device = self.coordinator.get_device(self.device_id)
         if device:
-            unicast_address = device.get("unicastAddress") or device.get("deviceAddress")
+            unicast_address = (
+                device.get("unicastAddress") or 
+                device.get("unicastaddress") or 
+                device.get("deviceAddress") or 
+                device.get("deviceaddress")
+            )
             if unicast_address:
                 try:
                     return int(unicast_address, 16) if isinstance(unicast_address, str) else unicast_address

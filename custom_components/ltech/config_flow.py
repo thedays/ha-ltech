@@ -1,10 +1,14 @@
 import logging
+import warnings
 
+import urllib3
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
+
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 from .api import LtechApiClient, LtechApiError, LtechAuthError
 from .const import (
