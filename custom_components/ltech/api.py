@@ -3,10 +3,13 @@ import hashlib
 import hmac
 import json
 import time
+import warnings
 
 import requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
+
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 from .const import (
     APP_ID_DEFAULT,
@@ -107,7 +110,7 @@ class LtechApiClient:
         payload = self._build_request(method, data)
         
         try:
-            response = requests.post(url, json=payload, verify=False, timeout=30)
+            response = requests.post(url, json=payload, verify=False, timeout=60)
             response.raise_for_status()
             result = response.json()
             
