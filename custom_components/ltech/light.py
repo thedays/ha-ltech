@@ -2,7 +2,7 @@ import logging
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_COLOR_TEMP,
+    ATTR_COLOR_TEMP_KELVIN,
     ColorMode,
     LightEntity,
 )
@@ -95,7 +95,7 @@ class LtechLight(LtechEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs):
         brightness = kwargs.get(ATTR_BRIGHTNESS)
-        color_temp = kwargs.get(ATTR_COLOR_TEMP)
+        color_temp_kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN)
         
         try:
             mesh_success = False
@@ -117,14 +117,14 @@ class LtechLight(LtechEntity, LightEntity):
                     self.device_id,
                     True,
                     brightness,
-                    color_temp,
+                    color_temp_kelvin,
                 )
             
             self._is_on = True
             if brightness is not None:
                 self._brightness = brightness
-            if color_temp is not None:
-                self._color_temp = color_temp
+            if color_temp_kelvin is not None:
+                self._color_temp = color_temp_kelvin
             
             self.async_write_ha_state()
         
