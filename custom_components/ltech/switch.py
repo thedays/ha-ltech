@@ -21,10 +21,14 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     switches = coordinator.get_devices_by_type(SWITCH_PRODUCT_IDS)
     
+    _LOGGER.info(f"Found {len(switches)} switch devices: {[d.get('productId') or d.get('productid', 'N/A') for d in switches]}")
+    _LOGGER.info(f"All devices count: {len(coordinator.devices)}")
+    
     entities = []
     for device in switches:
         entities.append(LtechSwitch(coordinator, device))
     
+    _LOGGER.info(f"Adding {len(entities)} switch entities")
     async_add_entities(entities)
 
 

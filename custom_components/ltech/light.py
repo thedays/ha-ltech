@@ -26,10 +26,15 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     lights = coordinator.get_devices_by_type(LIGHT_PRODUCT_IDS)
     
+    _LOGGER.info(f"Found {len(lights)} light devices: {[d.get('productId') or d.get('productid', 'N/A') for d in lights]}")
+    _LOGGER.info(f"All devices count: {len(coordinator.devices)}")
+    _LOGGER.info(f"All devices productIds: {[d.get('productId') or d.get('productid', 'N/A') for d in coordinator.devices.values()]}")
+    
     entities = []
     for device in lights:
         entities.append(LtechLight(coordinator, device))
     
+    _LOGGER.info(f"Adding {len(entities)} light entities")
     async_add_entities(entities)
 
 

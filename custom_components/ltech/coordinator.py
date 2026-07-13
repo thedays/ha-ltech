@@ -83,7 +83,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
     def get_devices_by_type(self, product_ids):
         return [
             device for device in self.devices.values()
-            if device.get("productId") in product_ids
+            if (device.get("productId") or device.get("productid", "")) in product_ids
         ]
 
     def start_mqtt(self):
