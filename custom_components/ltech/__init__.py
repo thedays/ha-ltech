@@ -42,7 +42,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if places_list:
         first_place = places_list[0]
         place_id = first_place.get("placeId") or first_place.get("placeid")
-        await coordinator.start_mesh(place_id)
+        hass.async_create_task(coordinator.start_mesh(place_id))
     
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     

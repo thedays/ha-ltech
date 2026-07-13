@@ -162,12 +162,14 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                         else:
                             _LOGGER.warning("Bluetooth Mesh connection failed, falling back to cloud API")
                     else:
-                        _LOGGER.warning("Mesh keys not found in place info")
+                        _LOGGER.info("Mesh keys not found, skipping Mesh setup")
+                else:
+                    _LOGGER.info("Place info is not a dict, skipping Mesh setup")
             else:
-                _LOGGER.warning("Failed to get place info for Mesh")
+                _LOGGER.info("Place info API returned empty, skipping Mesh setup")
                 
         except Exception as e:
-            _LOGGER.error(f"Failed to start Mesh: {e}")
+            _LOGGER.info(f"Mesh setup skipped due to API error: {e}")
 
         return self.mesh_enabled
 
