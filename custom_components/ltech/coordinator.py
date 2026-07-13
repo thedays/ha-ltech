@@ -53,10 +53,15 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 
                 if isinstance(device_list, dict) and "rows" in device_list:
                     self.devices = {}
+                    _LOGGER.info(f"Device list raw data: {device_list}")
                     for device in device_list["rows"]:
                         device_id = device.get("deviceId") or device.get("deviceid")
+                        product_id = device.get("productId") or device.get("productid", "")
+                        device_name = device.get("deviceName") or device.get("devicename", "")
+                        _LOGGER.info(f"Device: id={device_id}, product={product_id}, name={device_name}, full={device}")
                         if device_id:
                             self.devices[device_id] = device
+                    _LOGGER.info(f"Total devices loaded: {len(self.devices)}")
                     return self.devices
             
             return self.devices
