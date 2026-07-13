@@ -109,8 +109,13 @@ class LtechApiClient:
         url = f"{self.server_url}{REST_URL}"
         payload = self._build_request(method, data)
         
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "SmartHome/3 CFNetwork/3890.100.1 Darwin/27.0.0",
+        }
+        
         try:
-            response = requests.post(url, json=payload, verify=False, timeout=60)
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=60)
             response.raise_for_status()
             result = response.json()
             
@@ -148,7 +153,7 @@ class LtechApiClient:
         return self._send_request(FUN_URL_PLACE_LIST, data)
 
     def get_place_info(self, place_id):
-        data = {"placeid": int(place_id)}
+        data = {"placeId": place_id}
         result = self._send_request(FUN_URL_PLACE_INFO, data)
         
         if isinstance(result, dict):
@@ -167,7 +172,7 @@ class LtechApiClient:
         if place_id is None:
             place_id = self.place_id
         
-        data = {"placeid": int(place_id)}
+        data = {"placeId": place_id}
         return self._send_request(FUN_URL_DEVICE_LIST, data)
 
     def request_device_control(self, device_ids):
@@ -222,7 +227,7 @@ class LtechApiClient:
         return self._send_request(FUN_URL_DEVICE_UNSUBSCRIBE, {})
 
     def get_device_sync_status(self, place_id):
-        data = {"placeid": int(place_id)}
+        data = {"placeId": place_id}
         return self._send_request(FUN_URL_DEVICE_SYNC_STATUS, data)
 
     def bind_user(self):
