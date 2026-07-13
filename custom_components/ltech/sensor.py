@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, TEMP_CELSIUS
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -81,7 +81,7 @@ class LtechTemperatureSensor(LtechSensor):
 
     @property
     def unit_of_measurement(self):
-        return TEMP_CELSIUS
+        return "°C"
 
     async def async_update(self):
         device = self.coordinator.get_device(self.device_id)
