@@ -115,9 +115,15 @@ class LtechApiClient:
         }
         
         try:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.info(f"API Request: method={method}, url={url}, data={data}, session={self.session[:20]}...")
+            
             response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=60)
             response.raise_for_status()
             result = response.json()
+            
+            _logger.info(f"API Response: ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:200]}")
             
             if result.get("ret") == 10:
                 raise LtechAuthError("Session expired, need to re-login")
@@ -143,7 +149,6 @@ class LtechApiClient:
         
         if isinstance(result, dict):
             self.session = result.get("session", self.session)
-            self.secret_key = result.get("secretkey", self.secret_key)
             self.user_id = result.get("userid")
         
         return result
