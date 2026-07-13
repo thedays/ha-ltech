@@ -188,7 +188,6 @@ class LtechMeshStatusSensor(SensorEntity):
         self.coordinator = coordinator
         self._attr_name = "Ltech Mesh Status"
         self._attr_unique_id = "ltech_mesh_status"
-        self._attr_device_class = SensorDeviceClass.CONNECTIVITY
         self._attr_state = "disconnected"
 
     @property
