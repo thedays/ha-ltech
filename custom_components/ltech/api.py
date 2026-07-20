@@ -2,12 +2,15 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 import warnings
 
 import requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
+
+_logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
@@ -92,7 +95,7 @@ class LtechApiClient:
         )
         sign = self._md5_sign(sign_str)
         
-        return {
+        payload = {
             "appid": str(self.app_id),
             "data": encrypted_data,
             "method": method,
@@ -104,6 +107,18 @@ class LtechApiClient:
             "format": "json",
             "v": "2.0",
         }
+        
+        _logger.debug(f"[BUILD_REQUEST] method={method}")
+        _logger.debug(f"[BUILD_REQUEST] raw_data={data}")
+        _logger.debug(f"[BUILD_REQUEST] encrypted_data={encrypted_data}")
+        _logger.debug(f"[BUILD_REQUEST] sign_str={sign_str}")
+        _logger.debug(f"[BUILD_REQUEST] sign={sign}")
+        _logger.debug(f"[BUILD_REQUEST] session={self.session}")
+        _logger.debug(f"[BUILD_REQUEST] timestamp={timestamp}")
+        _logger.debug(f"[BUILD_REQUEST] secret_key={self.secret_key}")
+        _logger.debug(f"[BUILD_REQUEST] full_payload={json.dumps(payload, separators=(',', ':'))}")
+        
+        return payload
 
     def _send_request(self, method, data=None):
         url = f"{self.server_url}{REST_URL}"
@@ -115,25 +130,33 @@ class LtechApiClient:
         }
         
         try:
-            import logging
-            _logger = logging.getLogger(__name__)
-            _logger.info(f"API Request: method={method}, url={url}, data={data}, session={self.session[:20]}...")
+            _logger.info(f"[API_REQUEST] method={method}, url={url}, data={data}, session={self.session[:20]}...")
+            _logger.debug(f"[API_REQUEST] full_payload={json.dumps(payload, separators=(',', ':'))}")
+            _logger.debug(f"[API_REQUEST] headers={headers}")
             
             response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=60)
+            
+            _logger.debug(f"[API_RESPONSE] status_code={response.status_code}")
+            _logger.debug(f"[API_RESPONSE] headers={dict(response.headers)}")
+            _logger.debug(f"[API_RESPONSE] text={response.text}")
+            
             response.raise_for_status()
             result = response.json()
             
-            _logger.info(f"API Response: ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:200]}")
+            _logger.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
             
             if result.get("ret") == 10:
                 raise LtechAuthError("Session expired, need to re-login")
             
             if result.get("ret") != 0:
+                _logger.error(f"[API_ERROR] method={method}, ret={result.get('ret')}, msg={result.get('msg', '')}")
+                _logger.error(f"[API_ERROR] Request that failed: data={data}, session={self.session}, secret_key={self.secret_key}")
                 raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')} (ret={result.get('ret')})")
             
             return result.get("data", result.get("message"))
         
         except requests.exceptions.RequestException as e:
+            _logger.error(f"[API_REQUEST_ERROR] method={method}, error={str(e)}")
             raise LtechApiError(f"Request failed: {str(e)}") from e
 
     def login(self):
@@ -150,15 +173,21 @@ class LtechApiClient:
         if isinstance(result, dict):
             self.session = result.get("session", self.session)
             self.user_id = result.get("userid")
+            new_secret_key = result.get("secretkey")
+            if new_secret_key:
+                _logger.info(f"[LOGIN] Updated secret_key: {new_secret_key[:10]}...")
+                self.secret_key = new_secret_key
         
+        _logger.info(f"[LOGIN] Success - session={self.session[:20]}..., user_id={self.user_id}")
         return result
 
     def get_place_list(self):
         data = {"userId": self.user_id}
+        _logger.info(f"[GET_PLACE_LIST] user_id={self.user_id}")
         return self._send_request(FUN_URL_PLACE_LIST, data)
 
     def get_place_info(self, place_id):
-        data = {"placeId": place_id}
+        data = {"placeid": int(place_id)}
         result = self._send_request(FUN_URL_PLACE_INFO, data)
         
         if isinstance(result, dict):
@@ -177,7 +206,8 @@ class LtechApiClient:
         if place_id is None:
             place_id = self.place_id
         
-        data = {"placeId": place_id}
+        data = {"placeid": int(place_id)}
+        _logger.info(f"[GET_DEVICE_LIST] placeid={place_id}")
         return self._send_request(FUN_URL_DEVICE_LIST, data)
 
     def request_device_control(self, device_ids):
