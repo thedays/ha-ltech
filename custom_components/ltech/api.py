@@ -154,11 +154,11 @@ class LtechApiClient:
         return result
 
     def get_place_list(self):
-        data = {"userid": self.user_id}
+        data = {"userId": self.user_id}
         return self._send_request(FUN_URL_PLACE_LIST, data)
 
     def get_place_info(self, place_id):
-        data = {"placeid": place_id}
+        data = {"placeId": place_id}
         result = self._send_request(FUN_URL_PLACE_INFO, data)
         
         if isinstance(result, dict):
@@ -177,22 +177,22 @@ class LtechApiClient:
         if place_id is None:
             place_id = self.place_id
         
-        data = {"placeid": place_id}
+        data = {"placeId": place_id}
         return self._send_request(FUN_URL_DEVICE_LIST, data)
 
     def request_device_control(self, device_ids):
-        data = {"deviceids": device_ids}
+        data = {"deviceIds": device_ids}
         return self._send_request(FUN_URL_DEVICE_REQUEST_CONTROL, data)
 
     def get_device_online_status(self, device_ids):
-        data = {"deviceids": device_ids}
+        data = {"deviceIds": device_ids}
         return self._send_request(FUN_URL_DEVICE_ONLINE_STATUS, data)
 
     def control_device(self, device_id, action):
         self.request_device_control([device_id])
         
         data = {
-            "deviceid": device_id,
+            "deviceId": device_id,
             "action": action,
         }
         return self._send_request(FUN_URL_DEVICE_CONTROL, data)
@@ -232,7 +232,7 @@ class LtechApiClient:
         return self._send_request(FUN_URL_DEVICE_UNSUBSCRIBE, {})
 
     def get_device_sync_status(self, place_id):
-        data = {"placeid": place_id}
+        data = {"placeId": place_id}
         return self._send_request(FUN_URL_DEVICE_SYNC_STATUS, data)
 
     def bind_user(self):
