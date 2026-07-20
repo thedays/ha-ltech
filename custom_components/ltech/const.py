@@ -1,5 +1,5 @@
 DOMAIN = "ltech"
-VERSION = "2.3.17"
+VERSION = "2.3.18"
 CONF_ACCOUNT = "account"
 CONF_PASSWORD = "password"
 CONF_SERVER_URL = "server_url"

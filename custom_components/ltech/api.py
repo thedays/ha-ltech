@@ -96,16 +96,16 @@ class LtechApiClient:
         sign = self._md5_sign(sign_str)
         
         payload = {
-            "appid": str(self.app_id),
-            "data": encrypted_data,
             "method": method,
-            "platform_version": "iOS_2.8.0",
-            "session": self.session,
-            "sign": sign,
-            "system_model": "iOS 27.0_iPhone17,5",
-            "timestamp": timestamp,
             "format": "json",
+            "platform_version": "iOS_2.8.0",
+            "data": encrypted_data,
+            "system_model": "iOS 27.0_iPhone17,5",
             "v": "2.0",
+            "session": self.session,
+            "timestamp": timestamp,
+            "appid": str(self.app_id),
+            "sign": sign,
         }
         
         _logger.debug(f"[BUILD_REQUEST] method={method}")
@@ -120,7 +120,7 @@ class LtechApiClient:
         
         return payload
 
-    def _send_request(self, method, data=None):
+    def _send_request(self, method, data=None, timeout=60):
         url = f"{self.server_url}{REST_URL}"
         payload = self._build_request(method, data)
         
@@ -130,11 +130,11 @@ class LtechApiClient:
         }
         
         try:
-            _logger.info(f"[API_REQUEST] method={method}, url={url}, data={data}, session={self.session[:20]}...")
+            _logger.info(f"[API_REQUEST] method={method}, url={url}, data={data}, session={self.session[:20]}..., secret_key={self.secret_key[:20]}...")
             _logger.debug(f"[API_REQUEST] full_payload={json.dumps(payload, separators=(',', ':'))}")
             _logger.debug(f"[API_REQUEST] headers={headers}")
             
-            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=60)
+            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=timeout)
             
             _logger.debug(f"[API_RESPONSE] status_code={response.status_code}")
             _logger.debug(f"[API_RESPONSE] headers={dict(response.headers)}")
@@ -207,8 +207,8 @@ class LtechApiClient:
             place_id = self.place_id
         
         data = {"placeid": int(place_id)}
-        _logger.info(f"[GET_DEVICE_LIST] placeid={place_id}")
-        return self._send_request(FUN_URL_DEVICE_LIST, data)
+        _logger.info(f"[GET_DEVICE_LIST] placeid={place_id}, type={type(place_id)}")
+        return self._send_request(FUN_URL_DEVICE_LIST, data, timeout=120)
 
     def request_device_control(self, device_ids):
         data = {"deviceIds": device_ids}
