@@ -91,17 +91,22 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             product_type = device.get("producttype")
             producttypename = device.get("producttypename", "")
             productname = device.get("productname", "")
-            aipuducttype = device.get("aipuducttype", "")
             
-            if "智能照明" in producttypename or "灯" in productname or product_type == "2" or aipuducttype == "light":
-                if any("LIGHT" in pt for pt in product_types):
-                    devices.append(device)
-                    continue
+            is_switch = (producttypename == "智能开关" or 
+                        "开关" in producttypename or
+                        product_type == "8")
             
-            if "智能开关" in producttypename or "开关" in productname or product_type == "8":
-                if any("SWITCH" in pt for pt in product_types):
-                    devices.append(device)
-                    continue
+            is_light = (producttypename == "智能照明" or 
+                       "灯" in producttypename or
+                       product_type == "2")
+            
+            if is_switch and any("SWITCH" in pt for pt in product_types):
+                devices.append(device)
+                continue
+            
+            if is_light and any("LIGHT" in pt for pt in product_types):
+                devices.append(device)
+                continue
             
             if any("SENSOR" in pt for pt in product_types):
                 if "sensor" in producttypename.lower() or "传感器" in producttypename:
