@@ -85,11 +85,29 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
     def get_device(self, device_id):
         return self.devices.get(device_id)
 
-    def get_devices_by_type(self, product_ids):
-        return [
-            device for device in self.devices.values()
-            if (device.get("productId") or device.get("productid", "")) in product_ids
-        ]
+    def get_devices_by_type(self, product_types):
+        devices = []
+        for device in self.devices.values():
+            product_type = device.get("producttype")
+            producttypename = device.get("producttypename", "")
+            productname = device.get("productname", "")
+            aipuducttype = device.get("aipuducttype", "")
+            
+            if "智能照明" in producttypename or "灯" in productname or product_type == "2" or aipuducttype == "light":
+                if "light" in product_types.lower() or any("LIGHT" in pt for pt in product_types):
+                    devices.append(device)
+                    continue
+            
+            if "智能开关" in producttypename or "开关" in productname or product_type == "8":
+                if "switch" in product_types.lower() or any("SWITCH" in pt for pt in product_types):
+                    devices.append(device)
+                    continue
+            
+            if "sensor" in product_types.lower() or any("SENSOR" in pt for pt in product_types):
+                if "sensor" in producttypename.lower() or "传感器" in producttypename:
+                    devices.append(device)
+        
+        return devices
 
     def start_mqtt(self):
         if self.mqtt_client:
