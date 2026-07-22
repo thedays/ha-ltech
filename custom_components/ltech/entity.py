@@ -9,8 +9,8 @@ class LtechEntity(CoordinatorEntity[LtechDataUpdateCoordinator]):
     def __init__(self, coordinator, device):
         super().__init__(coordinator)
         self.device = device
-        self.device_id = device.get("deviceId") or device.get("deviceid", "")
-        self.product_id = device.get("productId", "") or device.get("productid", "")
+        self.device_id = str(device.get("deviceId") or device.get("deviceid", ""))
+        self.product_id = str(device.get("productId", "") or device.get("productid", ""))
         self.device_name = device.get("deviceName", "") or device.get("devicename", "")
         self.room_name = device.get("roomName", "") or device.get("roomname", "")
         self.floor_name = device.get("floorName", "") or device.get("floorname", "")
