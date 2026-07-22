@@ -106,6 +106,9 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             producttypename = device.get("producttypename", "")
             productname = device.get("productname", "")
             devicename = device.get("devicename", "")
+            aipuducttype = device.get("aipuducttype", "")
+            
+            _LOGGER.debug(f"[CLASSIFY_DEBUG] Device '{devicename}' (id={device_id}): producttype={product_type}, producttypename={producttypename}, productname={productname}, aipuducttype={aipuducttype}")
             
             is_switch = (producttypename == "智能开关" or 
                         "开关" in producttypename or
@@ -113,7 +116,10 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             
             is_light = (producttypename == "智能照明" or 
                        "灯" in producttypename or
-                       product_type == "2")
+                       "灯" in devicename or
+                       "灯" in productname or
+                       product_type == "2" or
+                       aipuducttype == "light")
             
             if is_switch and any("SWITCH" in pt for pt in product_types):
                 _LOGGER.info(f"[CLASSIFY] Device '{devicename}' (id={device_id}) classified as SWITCH")
