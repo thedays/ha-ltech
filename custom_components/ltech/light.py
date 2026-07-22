@@ -70,14 +70,15 @@ class LtechLight(LtechEntity, LightEntity):
             modes.append(ColorMode.HS)
             modes.append(ColorMode.BRIGHTNESS)
         
-        if "色温" in product_name:
+        elif "色温" in product_name:
             modes.append(ColorMode.COLOR_TEMP)
             modes.append(ColorMode.BRIGHTNESS)
         
-        if "调光" in product_name:
+        elif "调光" in product_name:
             modes.append(ColorMode.BRIGHTNESS)
         
-        modes.append(ColorMode.ONOFF)
+        else:
+            modes.append(ColorMode.ONOFF)
         
         return set(modes)
 

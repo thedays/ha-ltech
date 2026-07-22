@@ -8,5 +8,5 @@
   "homekit": {},
   "iot_class": "cloud_push",
   "requirements": ["pycryptodome>=3.18.0", "requests>=2.31.0", "aliyun-iot-linkkit>=1.2.13", "bleak>=0.21.0"],
-  "version": "2.3.26"
+  "version": "2.3.27"
 }
