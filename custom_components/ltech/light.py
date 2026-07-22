@@ -64,23 +64,17 @@ class LtechLight(LtechEntity, LightEntity):
     @property
     def supported_color_modes(self):
         product_name = self.device.get("productname", "")
-        modes = []
         
         if "RGB" in product_name:
-            modes.append(ColorMode.HS)
-            modes.append(ColorMode.BRIGHTNESS)
+            return {ColorMode.HS, ColorMode.COLOR_TEMP}
         
-        elif "色温" in product_name:
-            modes.append(ColorMode.COLOR_TEMP)
-            modes.append(ColorMode.BRIGHTNESS)
+        if "色温" in product_name:
+            return {ColorMode.COLOR_TEMP}
         
-        elif "调光" in product_name:
-            modes.append(ColorMode.BRIGHTNESS)
+        if "调光" in product_name:
+            return {ColorMode.BRIGHTNESS}
         
-        else:
-            modes.append(ColorMode.ONOFF)
-        
-        return set(modes)
+        return {ColorMode.ONOFF}
 
     @property
     def brightness(self):
