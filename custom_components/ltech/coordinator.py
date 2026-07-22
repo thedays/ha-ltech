@@ -53,14 +53,27 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 
                 if isinstance(device_list, dict) and "rows" in device_list:
                     self.devices = {}
-                    _LOGGER.info(f"Device list raw data: {device_list}")
+                    device_name_counts = {}
                     for device in device_list["rows"]:
                         device_id = device.get("deviceId") or device.get("deviceid")
+                        device_id = str(device_id) if device_id else None
                         product_id = device.get("productId") or device.get("productid", "")
                         device_name = device.get("deviceName") or device.get("devicename", "")
-                        _LOGGER.info(f"Device: id={device_id}, product={product_id}, name={device_name}, full={device}")
+                        
                         if device_id:
-                            self.devices[device_id] = device
+                            if device_id in self.devices:
+                                _LOGGER.warning(f"[DUPLICATE] Device with id={device_id} already exists, skipping")
+                            else:
+                                self.devices[device_id] = device
+                                if device_name in device_name_counts:
+                                    device_name_counts[device_name] += 1
+                                else:
+                                    device_name_counts[device_name] = 1
+                    
+                    for name, count in device_name_counts.items():
+                        if count > 1:
+                            _LOGGER.info(f"[DUPLICATE_NAME] Device name '{name}' appears {count} times")
+                    
                     _LOGGER.info(f"Total devices loaded: {len(self.devices)}")
                     return self.devices
             

@@ -3,16 +3,33 @@ import hashlib
 import hmac
 import json
 import logging
+import ssl
 import time
 import warnings
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
+from urllib3.util.retry import Retry
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
 _logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+
+class SSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_version=ssl.PROTOCOL_TLS,
+            ssl_context=ctx,
+        )
 
 from .const import (
     APP_ID_DEFAULT,
@@ -59,6 +76,16 @@ class LtechApiClient:
         self.mesh_app_key = None
         self.mesh_uuid = None
         self.mqtt_broker = MQTT_BROKER_CN
+        
+        self._requests_session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self._requests_session.mount("https://", SSLAdapter())
+        self._requests_session.mount("http://", adapter)
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
@@ -134,7 +161,7 @@ class LtechApiClient:
             _logger.debug(f"[API_REQUEST] full_payload={json.dumps(payload, separators=(',', ':'))}")
             _logger.debug(f"[API_REQUEST] headers={headers}")
             
-            response = requests.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=timeout)
+            response = self._requests_session.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=timeout)
             
             _logger.debug(f"[API_RESPONSE] status_code={response.status_code}")
             _logger.debug(f"[API_RESPONSE] headers={dict(response.headers)}")
