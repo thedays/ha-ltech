@@ -88,9 +88,11 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
     def get_devices_by_type(self, product_types):
         devices = []
         for device in self.devices.values():
+            device_id = device.get("deviceId") or device.get("deviceid")
             product_type = device.get("producttype")
             producttypename = device.get("producttypename", "")
             productname = device.get("productname", "")
+            devicename = device.get("devicename", "")
             
             is_switch = (producttypename == "智能开关" or 
                         "开关" in producttypename or
@@ -101,17 +103,21 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                        product_type == "2")
             
             if is_switch and any("SWITCH" in pt for pt in product_types):
+                _LOGGER.info(f"[CLASSIFY] Device '{devicename}' (id={device_id}) classified as SWITCH")
                 devices.append(device)
                 continue
             
             if is_light and any("LIGHT" in pt for pt in product_types):
+                _LOGGER.info(f"[CLASSIFY] Device '{devicename}' (id={device_id}) classified as LIGHT")
                 devices.append(device)
                 continue
             
             if any("SENSOR" in pt for pt in product_types):
                 if "sensor" in producttypename.lower() or "传感器" in producttypename:
+                    _LOGGER.info(f"[CLASSIFY] Device '{devicename}' (id={device_id}) classified as SENSOR")
                     devices.append(device)
         
+        _LOGGER.info(f"[CLASSIFY] Found {len(devices)} devices for types {product_types}")
         return devices
 
     def start_mqtt(self):
