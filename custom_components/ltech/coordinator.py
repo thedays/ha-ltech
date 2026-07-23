@@ -116,10 +116,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             
             is_light = (producttypename == "智能照明" or 
                        "灯" in producttypename or
-                       "灯" in devicename or
-                       "灯" in productname or
-                       product_type == "2" or
-                       aipuducttype == "light")
+                       product_type == "2")
             
             if is_switch and any("SWITCH" in pt for pt in product_types):
                 _LOGGER.info(f"[CLASSIFY] Device '{devicename}' (id={device_id}) classified as SWITCH")
