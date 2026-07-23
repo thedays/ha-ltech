@@ -274,12 +274,25 @@ class LtechApiClient:
 
     def control_switch(self, device_id, on):
         action = {}
-        
+
         if on:
             action["CharSwitch"] = "66BB0000000001EB"
         else:
             action["CharSwitch"] = "66BB0000000000EB"
-        
+
+        return self.control_device(device_id, action)
+
+    def control_switch_zone(self, device_id, zone_index, on):
+        """Control a specific zone of a multi-zone switch.
+
+        The CharSwitch format for zone control is:
+        66BB + 0000 + 0000 + zone_hex + state_hex + EB
+        """
+        action = {}
+        zone_hex = f"{zone_index:02X}"
+        state_hex = "01" if on else "00"
+        action["CharSwitch"] = f"66BB00000000{zone_hex}{state_hex}EB"
+
         return self.control_device(device_id, action)
 
     def subscribe_device(self):
