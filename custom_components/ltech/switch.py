@@ -178,9 +178,9 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             hex_string = hex_string.upper()
             if hex_string.startswith("66BB") and hex_string.endswith("EB"):
                 data = hex_string[4:-2]
-                if len(data) >= 8:
-                    value_hex = data[-2:]
-                    return int(value_hex, 16)
+                if len(data) >= 4:
+                    status_byte = int(data[2:4], 16)
+                    return 1 if (status_byte & 1) == 1 else 0
             return int(hex_string, 16)
         except (ValueError, TypeError):
             return None
@@ -204,7 +204,7 @@ class LtechSwitch(LtechEntity, SwitchEntity):
         """Parse zone state from CharSwitch hex string.
 
         The CharSwitch format is: 66BB + data + EB
-        For multi-zone switches, each zone's state is represented by a bit.
+        For multi-zone switches, each zone's state is represented by a bit in status_byte.
         """
         if not isinstance(hex_string, str) or len(hex_string) < 8:
             return False
@@ -214,9 +214,9 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             if hex_string.startswith("66BB") and hex_string.endswith("EB"):
                 data = hex_string[4:-2]
                 if len(data) >= 4:
-                    state_value = int(data[2:4], 16)
-                    return bool(state_value & (1 << (zone_index - 1)))
+                    status_byte = int(data[2:4], 16)
+                    return bool(status_byte & (1 << (zone_index - 1)))
         except (ValueError, TypeError):
-            pass
+            return False
 
         return False
