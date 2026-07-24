@@ -75,6 +75,17 @@ class LtechSensor(LtechEntity, SensorEntity):
                 device_state = json.loads(device_state)
             except (json.JSONDecodeError, TypeError):
                 device_state = {}
+        
+        if not device_state:
+            maccode = self.device.get("maccode", "{}")
+            if isinstance(maccode, str):
+                try:
+                    import json
+                    maccode_data = json.loads(maccode)
+                    device_state.update(maccode_data)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
         return device_state
 
     @property

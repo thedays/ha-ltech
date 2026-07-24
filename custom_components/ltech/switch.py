@@ -95,6 +95,15 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             except (json.JSONDecodeError, TypeError):
                 device_state = {}
         
+        if not device_state:
+            maccode = self.device.get("maccode", "{}")
+            if isinstance(maccode, str):
+                try:
+                    maccode_data = json.loads(maccode)
+                    device_state.update(maccode_data)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
         if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
             zone_key = f"zone{self._zone_index}"
             zone_state = device_state.get(zone_key, {})
