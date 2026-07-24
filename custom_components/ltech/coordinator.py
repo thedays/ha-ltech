@@ -64,6 +64,8 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                             if device_id in self.devices:
                                 _LOGGER.warning(f"[DUPLICATE] Device with id={device_id} already exists, skipping")
                             else:
+                                device_state = device.get("deviceState", "NOT_FOUND")
+                                _LOGGER.debug(f"[DEVICE_STATE] device_id={device_id}, device_name={device_name}, deviceState={device_state[:100] if isinstance(device_state, str) else type(device_state)}")
                                 self.devices[device_id] = device
                                 if device_name in device_name_counts:
                                     device_name_counts[device_name] += 1

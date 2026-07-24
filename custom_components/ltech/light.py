@@ -118,8 +118,10 @@ class LtechLight(LtechEntity, LightEntity):
     def is_on(self):
         device_state = self._get_device_state()
         state_value = device_state.get("CharSwitch")
+        _LOGGER.debug(f"[LIGHT_STATE] device_id={self.device_id}, device_name={self.device_name}, device_state={device_state}, CharSwitch={state_value}")
         if state_value is not None:
             parsed = self._parse_state_value(state_value)
+            _LOGGER.debug(f"[LIGHT_STATE] parsed_value={parsed}, is_on={parsed == 1 if parsed is not None else False}")
             return parsed == 1 if parsed is not None else False
         return False
 
