@@ -56,9 +56,8 @@ class LtechEntity(CoordinatorEntity[LtechDataUpdateCoordinator]):
             self.coordinator.async_add_listener(self._handle_coordinator_update)
         )
 
-    async def _handle_coordinator_update(self):
+    def _handle_coordinator_update(self):
         device = self.coordinator.get_device(self.device_id)
         if device:
             self.device = device
-            await self.async_update()
-            self.async_write_ha_state()
+            self.schedule_update_ha_state()
