@@ -64,7 +64,6 @@ def _get_zone_count(device):
 class LtechSwitch(LtechEntity, SwitchEntity):
     def __init__(self, coordinator, device, zone_index=None, zone_count=None):
         super().__init__(coordinator, device)
-        self._is_on = False
         self._zone_index = zone_index
         self._zone_count = zone_count
 
@@ -85,7 +84,38 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        return self._is_on
+        device = self.coordinator.get_device(self.device_id)
+        if device:
+            self.device = device
+        
+        device_state = self.device.get("deviceState", {})
+        if isinstance(device_state, str):
+            try:
+                device_state = json.loads(device_state)
+            except (json.JSONDecodeError, TypeError):
+                device_state = {}
+        
+        if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+            zone_key = f"zone{self._zone_index}"
+            zone_state = device_state.get(zone_key, {})
+            if isinstance(zone_state, dict):
+                state_value = zone_state.get("CharSwitch")
+                if state_value is not None:
+                    try:
+                        value_hex = state_value[-2:]
+                        return int(value_hex, 16) == 1
+                    except (ValueError, TypeError):
+                        return False
+            return False
+        
+        state_value = device_state.get("CharSwitch")
+        if state_value is not None:
+            try:
+                value_hex = state_value[-2:]
+                return int(value_hex, 16) == 1
+            except (ValueError, TypeError):
+                return False
+        return False
 
     async def async_turn_on(self, **kwargs):
         try:

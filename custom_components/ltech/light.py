@@ -41,9 +41,19 @@ async def async_setup_entry(
 class LtechLight(LtechEntity, LightEntity):
     def __init__(self, coordinator, device):
         super().__init__(coordinator, device)
-        self._brightness = None
-        self._color_temp = None
-        self._is_on = False
+
+    def _get_device_state(self):
+        device = self.coordinator.get_device(self.device_id)
+        if device:
+            self.device = device
+        device_state = self.device.get("deviceState", {})
+        if isinstance(device_state, str):
+            try:
+                import json
+                device_state = json.loads(device_state)
+            except (json.JSONDecodeError, TypeError):
+                device_state = {}
+        return device_state
 
     @property
     def color_mode(self):
@@ -78,11 +88,23 @@ class LtechLight(LtechEntity, LightEntity):
 
     @property
     def brightness(self):
-        return self._brightness
+        device_state = self._get_device_state()
+        brightness_value = device_state.get("CharBrightness")
+        if brightness_value is not None:
+            parsed = self._parse_state_value(brightness_value)
+            if parsed is not None:
+                return int((parsed / 100) * 255)
+        return None
 
     @property
     def color_temp(self):
-        return self._color_temp
+        device_state = self._get_device_state()
+        temp_value = device_state.get("CharTemp")
+        if temp_value is not None:
+            parsed = self._parse_state_value(temp_value)
+            if parsed is not None and parsed > 0:
+                return 1000000 // parsed
+        return None
 
     @property
     def min_mireds(self):
@@ -94,7 +116,12 @@ class LtechLight(LtechEntity, LightEntity):
 
     @property
     def is_on(self):
-        return self._is_on
+        device_state = self._get_device_state()
+        state_value = device_state.get("CharSwitch")
+        if state_value is not None:
+            parsed = self._parse_state_value(state_value)
+            return parsed == 1 if parsed is not None else False
+        return False
 
     async def async_turn_on(self, **kwargs):
         brightness = kwargs.get(ATTR_BRIGHTNESS)

@@ -48,7 +48,6 @@ async def async_setup_entry(
 class LtechSensor(LtechEntity, SensorEntity):
     def __init__(self, coordinator, device):
         super().__init__(coordinator, device)
-        self._state = None
 
     def _parse_state_value(self, hex_string):
         if not isinstance(hex_string, str) or len(hex_string) < 8:
@@ -65,9 +64,18 @@ class LtechSensor(LtechEntity, SensorEntity):
         except (ValueError, TypeError):
             return None
 
-    @property
-    def state(self):
-        return self._state
+    def _get_device_state(self):
+        device = self.coordinator.get_device(self.device_id)
+        if device:
+            self.device = device
+        device_state = self.device.get("deviceState", {})
+        if isinstance(device_state, str):
+            try:
+                import json
+                device_state = json.loads(device_state)
+            except (json.JSONDecodeError, TypeError):
+                device_state = {}
+        return device_state
 
     @property
     def state_class(self):
@@ -83,18 +91,15 @@ class LtechTemperatureSensor(LtechSensor):
     def unit_of_measurement(self):
         return "°C"
 
-    async def async_update(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            self.device = device
-            
-            device_state = device.get("deviceState", {})
-            if isinstance(device_state, dict):
-                temp_value = device_state.get("CharTemp")
-                if temp_value is not None:
-                    parsed = self._parse_state_value(temp_value)
-                    if parsed is not None:
-                        self._state = float(parsed) / 10.0
+    @property
+    def state(self):
+        device_state = self._get_device_state()
+        temp_value = device_state.get("CharTemp")
+        if temp_value is not None:
+            parsed = self._parse_state_value(temp_value)
+            if parsed is not None:
+                return float(parsed) / 10.0
+        return None
 
 
 class LtechHumiditySensor(LtechSensor):
@@ -106,18 +111,15 @@ class LtechHumiditySensor(LtechSensor):
     def unit_of_measurement(self):
         return PERCENTAGE
 
-    async def async_update(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            self.device = device
-            
-            device_state = device.get("deviceState", {})
-            if isinstance(device_state, dict):
-                humi_value = device_state.get("CharHumidity")
-                if humi_value is not None:
-                    parsed = self._parse_state_value(humi_value)
-                    if parsed is not None:
-                        self._state = int(parsed)
+    @property
+    def state(self):
+        device_state = self._get_device_state()
+        humi_value = device_state.get("CharHumidity")
+        if humi_value is not None:
+            parsed = self._parse_state_value(humi_value)
+            if parsed is not None:
+                return int(parsed)
+        return None
 
 
 class LtechMotionSensor(LtechSensor):
@@ -125,17 +127,15 @@ class LtechMotionSensor(LtechSensor):
     def device_class(self):
         return SensorDeviceClass.MOTION
 
-    async def async_update(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            self.device = device
-            
-            device_state = device.get("deviceState", {})
-            if isinstance(device_state, dict):
-                motion_value = device_state.get("CharSwitch")
-                if motion_value is not None:
-                    parsed = self._parse_state_value(motion_value)
-                    self._state = parsed == 1 if parsed is not None else False
+    @property
+    def state(self):
+        device_state = self._get_device_state()
+        motion_value = device_state.get("CharSwitch")
+        if motion_value is not None:
+            parsed = self._parse_state_value(motion_value)
+            if parsed is not None:
+                return "motion" if parsed == 1 else "clear"
+        return "clear"
 
 
 class LtechDoorSensor(LtechSensor):
@@ -143,17 +143,15 @@ class LtechDoorSensor(LtechSensor):
     def device_class(self):
         return SensorDeviceClass.DOOR
 
-    async def async_update(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            self.device = device
-            
-            device_state = device.get("deviceState", {})
-            if isinstance(device_state, dict):
-                door_value = device_state.get("CharSwitch")
-                if door_value is not None:
-                    parsed = self._parse_state_value(door_value)
-                    self._state = "open" if parsed == 1 else "closed"
+    @property
+    def state(self):
+        device_state = self._get_device_state()
+        door_value = device_state.get("CharSwitch")
+        if door_value is not None:
+            parsed = self._parse_state_value(door_value)
+            if parsed is not None:
+                return "open" if parsed == 1 else "closed"
+        return "closed"
 
 
 class LtechBatterySensor(LtechSensor):
@@ -169,18 +167,15 @@ class LtechBatterySensor(LtechSensor):
     def state_class(self):
         return SensorStateClass.MEASUREMENT
 
-    async def async_update(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            self.device = device
-            
-            device_state = device.get("deviceState", {})
-            if isinstance(device_state, dict):
-                battery_value = device_state.get("CharBattery")
-                if battery_value is not None:
-                    parsed = self._parse_state_value(battery_value)
-                    if parsed is not None:
-                        self._state = int(parsed)
+    @property
+    def state(self):
+        device_state = self._get_device_state()
+        battery_value = device_state.get("CharBattery")
+        if battery_value is not None:
+            parsed = self._parse_state_value(battery_value)
+            if parsed is not None:
+                return int(parsed)
+        return None
 
 
 class LtechMeshStatusSensor(SensorEntity):
