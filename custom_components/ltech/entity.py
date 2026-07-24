@@ -6,6 +6,8 @@ from .coordinator import LtechDataUpdateCoordinator
 
 
 class LtechEntity(CoordinatorEntity[LtechDataUpdateCoordinator]):
+    _attr_should_poll = False
+
     def __init__(self, coordinator, device):
         super().__init__(coordinator)
         self.device = device
@@ -40,10 +42,6 @@ class LtechEntity(CoordinatorEntity[LtechDataUpdateCoordinator]):
         return self.device.get("onlineFlag", 0) != 2
 
     @property
-    def should_poll(self):
-        return False
-
-    @property
     def extra_state_attributes(self):
         return {
             "product_id": self.product_id,
@@ -51,3 +49,16 @@ class LtechEntity(CoordinatorEntity[LtechDataUpdateCoordinator]):
             "floor_name": self.floor_name,
             "online_flag": self.device.get("onlineFlag"),
         }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+
+    async def _handle_coordinator_update(self):
+        device = self.coordinator.get_device(self.device_id)
+        if device:
+            self.device = device
+            await self.async_update()
+            self.async_write_ha_state()

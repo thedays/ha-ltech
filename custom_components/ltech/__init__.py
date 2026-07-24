@@ -6,6 +6,7 @@ import urllib3
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
@@ -56,6 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"[SETUP] Forwarding setup to platforms: {PLATFORMS}")
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
+    await _async_cleanup_old_entities(hass, entry, coordinator)
+    
     _LOGGER.info(f"[SETUP] Ltech integration setup completed")
     return True
 
@@ -79,3 +82,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
     
     return unload_ok
+
+
+async def async_remove_config_entry_device(hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry) -> bool:
+    return True
+
+
+async def _async_cleanup_old_entities(hass: HomeAssistant, entry: ConfigEntry, coordinator):
+    ent_reg = er.async_get(hass)
+    
+    current_device_ids = set(coordinator.devices.keys())
+    
+    old_entities = []
+    for entity_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        entity_device_id = entity_entry.unique_id.replace(f"{DOMAIN}_", "").replace("_zone_1", "").replace("_zone_2", "").replace("_zone_3", "").replace("_zone_4", "")
+        if entity_device_id not in current_device_ids:
+            old_entities.append(entity_entry)
+    
+    if old_entities:
+        _LOGGER.info(f"[CLEANUP] Found {len(old_entities)} old entities to remove")
+        for entity_entry in old_entities:
+            _LOGGER.info(f"[CLEANUP] Removing old entity: {entity_entry.entity_id}")
+            ent_reg.async_remove(entity_entry.entity_id)
