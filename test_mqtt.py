@@ -26,7 +26,7 @@ SESSION_DEFAULT = "cqq577bze26adn1wbt5uz0nwk7zlfs03"
 REST_URL = "openapi/rest"
 DEFAULT_SERVER_URL = "https://apic.ltsys.com.cn:2443/"
 MQTT_BROKER_CN = "iot-060a5shm.mqtt.iothub.aliyuncs.com"
-MQTT_PORT_CN = 8883
+MQTT_PORT_CN = 1883
 
 FUN_URL_LOGIN = "ysnetwork.base.com.user.app.login"
 FUN_URL_BIND_USER = "ysnetwork.base.com.deviceparam.binduser"
@@ -171,7 +171,7 @@ class LtechApiClient:
         }
 
 
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
         print("✅ MQTT connected successfully")
         topic = userdata.get("topic")
@@ -205,8 +205,10 @@ def on_message(client, userdata, msg):
         print(f"❌ Failed to process MQTT message: {e}")
 
 
-def on_disconnect(client, userdata, rc):
+def on_disconnect(client, userdata, rc, properties=None):
     print(f"\n⚠️ MQTT disconnected with code {rc}")
+    if rc != 0:
+        print(f"   Unexpected disconnection. Reason code: {rc}")
 
 
 def on_log(client, userdata, level, buf):
@@ -275,13 +277,6 @@ def test_mqtt(email=None, password=None):
             mqtt_config["password"]
         )
 
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        client.tls_set_context(ssl_context)
-        client.tls_insecure_set(True)
-
         client.user_data_set({"topic": mqtt_config["topic"]})
         client.on_connect = on_connect
         client.on_message = on_message
@@ -290,19 +285,28 @@ def test_mqtt(email=None, password=None):
 
         print(f"🔌 Connecting to {mqtt_config['broker']}:{mqtt_config['port']}...")
         try:
-            client.connect(
+            rc = client.connect(
                 mqtt_config["broker"],
                 mqtt_config["port"],
                 60
             )
-            client.loop_start()
+            print(f"📊 connect() returned: {rc}")
             
-            print("\n⏳ Waiting for messages (press Ctrl+C to exit)...")
-            while True:
-                time.sleep(1)
-                if not client.is_connected():
-                    print("❌ MQTT connection lost")
-                    break
+            if rc == 0:
+                print("✅ MQTT connection successful (sync)")
+                topic = mqtt_config["topic"]
+                result, mid = client.subscribe(topic)
+                print(f"✅ Subscribed to topic: {topic}, result: {result}, mid: {mid}")
+                
+                print("\n🔄 Triggering device status sync...")
+                sync_result = api._send_request("ysnetwork.base.com.app.device.syncstatus", {"placeid": "4106622468442240"})
+                print(f"✅ Sync status result: {sync_result}")
+                
+                print("\n⏳ Waiting for messages (press Ctrl+C to exit)...")
+                print("   Using loop_forever() to maintain connection...")
+                client.loop_forever()
+            else:
+                print(f"❌ MQTT connection failed with code {rc}")
 
         except KeyboardInterrupt:
             print("\n👋 Exiting...")
