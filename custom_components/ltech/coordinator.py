@@ -174,15 +174,42 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 data = json.loads(f"{{{payload}}}")
             
             if isinstance(data, dict):
-                device_name = data.get("devicename")
-                product_key = data.get("productkey")
-                payload_data = data.get("payload")
+                message_type = data.get("messagetype")
+                device_id = data.get("deviceid")
+                report_instruct = data.get("reportinstruct")
                 
-                if device_name or product_key:
-                    _LOGGER.debug(f"MQTT update received: productkey={product_key}, devicename={device_name}, payload={payload_data}")
-                    self.hass.async_create_task(self.async_refresh())
+                _LOGGER.debug(f"MQTT update received: messagetype={message_type}, deviceid={device_id}, reportinstruct={report_instruct}")
+                
+                if message_type == 29 and device_id and report_instruct:
+                    device_id_str = str(device_id)
+                    if device_id_str in self.devices:
+                        try:
+                            if isinstance(report_instruct, str):
+                                state_data = json.loads(report_instruct)
+                            else:
+                                state_data = report_instruct
+                            
+                            if isinstance(state_data, dict):
+                                self.devices[device_id_str]["maccode"] = report_instruct if isinstance(report_instruct, str) else json.dumps(state_data)
+                                _LOGGER.info(f"MQTT device state updated: device_id={device_id_str}, state={state_data}")
+                                self.hass.async_create_task(self.async_refresh())
+                        except (json.JSONDecodeError, TypeError) as e:
+                            _LOGGER.warning(f"Failed to parse reportinstruct: {e}")
+                            self.hass.async_create_task(self.async_refresh())
+                    else:
+                        _LOGGER.debug(f"MQTT device not found in local cache: device_id={device_id_str}")
+                        self.hass.async_create_task(self.async_refresh())
+                elif message_type == 2 and device_id:
+                    device_id_str = str(device_id)
+                    state = data.get("state")
+                    if device_id_str in self.devices and state is not None:
+                        self.devices[device_id_str]["onlineflag"] = int(state)
+                        _LOGGER.info(f"MQTT device online status updated: device_id={device_id_str}, online={state}")
+                        self.hass.async_create_task(self.async_refresh())
+                    else:
+                        self.hass.async_create_task(self.async_refresh())
                 else:
-                    _LOGGER.debug(f"MQTT message received (unknown format): {payload[:100]}...")
+                    _LOGGER.debug(f"MQTT message received (other type): {payload[:100]}...")
                     self.hass.async_create_task(self.async_refresh())
                     
         except json.JSONDecodeError:
