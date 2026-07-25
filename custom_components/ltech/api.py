@@ -322,17 +322,27 @@ class LtechApiClient:
         return self._send_request(FUN_URL_DEVICE_SYNC_STATUS, data)
 
     def bind_user(self):
+        _LOGGER.info(f"[BIND_USER] Calling bind_user API")
         result = self._send_request(FUN_URL_BIND_USER, {})
-        if result and isinstance(result, dict) and 'param' in result:
-            try:
-                param = json.loads(result['param'])
-                self.product_key = param.get('productKey')
-                self.device_name = param.get('deviceName')
-                self.device_secret = param.get('deviceSecret')
-                return param
-            except json.JSONDecodeError:
-                pass
-        return result
+        _LOGGER.info(f"[BIND_USER] Result: {result}")
+        
+        if result and isinstance(result, dict):
+            if 'param' in result:
+                try:
+                    param = json.loads(result['param'])
+                    self.product_key = param.get('productKey')
+                    self.device_name = param.get('deviceName')
+                    self.device_secret = param.get('deviceSecret')
+                    _LOGGER.info(f"[BIND_USER] Parsed credentials: product_key={self.product_key}, device_name={self.device_name}, device_secret={self.device_secret[:10]}..." if self.device_secret else None)
+                    return param
+                except json.JSONDecodeError as e:
+                    _LOGGER.error(f"[BIND_USER] Failed to parse param JSON: {e}, param={result['param']}")
+            else:
+                _LOGGER.error(f"[BIND_USER] No 'param' field in result")
+        else:
+            _LOGGER.error(f"[BIND_USER] Invalid result: {result}")
+        
+        return None
 
     def generate_mqtt_password(self, timestamp=None):
         if not self.product_key or not self.device_name or not self.device_secret:
