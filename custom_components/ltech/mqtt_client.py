@@ -17,9 +17,10 @@ except ImportError as e:
 
 
 class LtechMqttClient:
-    def __init__(self, api_client, on_message_callback=None):
+    def __init__(self, api_client, on_message_callback=None, hass=None):
         self.api_client = api_client
         self.on_message_callback = on_message_callback
+        self.hass = hass
         self.client = None
         self.connected = False
         self.topic = None
@@ -153,7 +154,10 @@ class LtechMqttClient:
             _LOGGER.info(f"[MQTT] Message received: {msg.topic} -> {message[:200]}")
 
             if self.on_message_callback:
-                self.on_message_callback(message)
+                if self.hass:
+                    self.hass.loop.call_soon_threadsafe(self.on_message_callback, message)
+                else:
+                    self.on_message_callback(message)
 
         except Exception as e:
             _LOGGER.error(f"[MQTT] Failed to process message: {e}")

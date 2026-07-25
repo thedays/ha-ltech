@@ -155,7 +155,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         if self.mqtt_client:
             self.mqtt_client.disconnect()
 
-        self.mqtt_client = LtechMqttClient(self.api, self._on_mqtt_message)
+        self.mqtt_client = LtechMqttClient(self.api, self._on_mqtt_message, self.hass)
         connected = self.mqtt_client.connect()
         
         if connected:
@@ -211,28 +211,36 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                         if isinstance(state_data, dict):
                             self.device_states[device_id_str] = state_data
                             _LOGGER.info(f"[MQTT_UPDATE] device_id={device_id_str}, state={state_data}")
-                            self.hass.async_create_task(self.async_refresh())
+                            self._schedule_refresh()
                     except (json.JSONDecodeError, TypeError) as e:
                         _LOGGER.warning(f"[MQTT_ERROR] Failed to parse reportinstruct: {e}")
-                        self.hass.async_create_task(self.async_refresh())
+                        self._schedule_refresh()
                 elif message_type == 2 and device_id:
                     device_id_str = str(device_id)
                     state = data.get("state")
                     if device_id_str in self.devices and state is not None:
                         self.devices[device_id_str]["onlineflag"] = int(state)
                         _LOGGER.info(f"[MQTT_ONLINE] device_id={device_id_str}, online={state}")
-                        self.hass.async_create_task(self.async_refresh())
+                        self._schedule_refresh()
                     else:
-                        self.hass.async_create_task(self.async_refresh())
+                        self._schedule_refresh()
                 else:
                     _LOGGER.info(f"[MQTT_OTHER] message_type={message_type}, deviceid={device_id}")
-                    self.hass.async_create_task(self.async_refresh())
+                    self._schedule_refresh()
                     
         except json.JSONDecodeError:
             _LOGGER.warning(f"[MQTT_ERROR] Failed to parse JSON: {payload[:200]}")
-            self.hass.async_create_task(self.async_refresh())
+            self._schedule_refresh()
         except Exception as e:
             _LOGGER.error(f"[MQTT_ERROR] Error processing message: {e}")
+
+    def _schedule_refresh(self):
+        try:
+            self.hass.loop.call_soon_threadsafe(
+                lambda: self.hass.async_create_task(self.async_refresh())
+            )
+        except Exception as e:
+            _LOGGER.error(f"[MQTT_ERROR] Failed to schedule refresh: {e}")
 
     async def start_mesh(self, place_id):
         if self.mesh_manager:
