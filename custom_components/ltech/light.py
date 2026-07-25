@@ -47,6 +47,11 @@ class LtechLight(LtechEntity, LightEntity):
         if device:
             self.device = device
         
+        realtime_state = self.coordinator.get_device_state(self.device_id)
+        if realtime_state:
+            _LOGGER.debug(f"[LIGHT_STATE] Using realtime state for device_id={self.device_id}: {realtime_state}")
+            return realtime_state
+        
         device_state = self.device.get("deviceState", {})
         if isinstance(device_state, str):
             try:

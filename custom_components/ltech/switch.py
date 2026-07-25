@@ -88,21 +88,26 @@ class LtechSwitch(LtechEntity, SwitchEntity):
         if device:
             self.device = device
         
-        device_state = self.device.get("deviceState", {})
-        if isinstance(device_state, str):
-            try:
-                device_state = json.loads(device_state)
-            except (json.JSONDecodeError, TypeError):
-                device_state = {}
-        
-        if not device_state:
-            maccode = self.device.get("maccode", "{}")
-            if isinstance(maccode, str):
+        realtime_state = self.coordinator.get_device_state(self.device_id)
+        if realtime_state:
+            _LOGGER.debug(f"[SWITCH_STATE] Using realtime state for device_id={self.device_id}: {realtime_state}")
+            device_state = realtime_state
+        else:
+            device_state = self.device.get("deviceState", {})
+            if isinstance(device_state, str):
                 try:
-                    maccode_data = json.loads(maccode)
-                    device_state.update(maccode_data)
+                    device_state = json.loads(device_state)
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    device_state = {}
+            
+            if not device_state:
+                maccode = self.device.get("maccode", "{}")
+                if isinstance(maccode, str):
+                    try:
+                        maccode_data = json.loads(maccode)
+                        device_state.update(maccode_data)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
         
         if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
             zone_key = f"zone{self._zone_index}"

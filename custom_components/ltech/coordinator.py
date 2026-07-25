@@ -25,6 +25,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.api = api
         self.devices = {}
+        self.device_states = {}
         self.places = []
         self._reauth_attempted = False
         self.mqtt_client = None
@@ -144,6 +145,12 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.info(f"[CLASSIFY] Found {len(devices)} devices for types {product_types}")
         return devices
 
+    def get_device_state(self, device_id):
+        device_id_str = str(device_id)
+        if device_id_str in self.device_states:
+            return self.device_states[device_id_str]
+        return None
+
     def start_mqtt(self):
         if self.mqtt_client:
             self.mqtt_client.disconnect()
@@ -182,22 +189,18 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 
                 if message_type == 29 and device_id and report_instruct:
                     device_id_str = str(device_id)
-                    if device_id_str in self.devices:
-                        try:
-                            if isinstance(report_instruct, str):
-                                state_data = json.loads(report_instruct)
-                            else:
-                                state_data = report_instruct
-                            
-                            if isinstance(state_data, dict):
-                                self.devices[device_id_str]["maccode"] = report_instruct if isinstance(report_instruct, str) else json.dumps(state_data)
-                                _LOGGER.info(f"MQTT device state updated: device_id={device_id_str}, state={state_data}")
-                                self.hass.async_create_task(self.async_refresh())
-                        except (json.JSONDecodeError, TypeError) as e:
-                            _LOGGER.warning(f"Failed to parse reportinstruct: {e}")
+                    try:
+                        if isinstance(report_instruct, str):
+                            state_data = json.loads(report_instruct)
+                        else:
+                            state_data = report_instruct
+                        
+                        if isinstance(state_data, dict):
+                            self.device_states[device_id_str] = state_data
+                            _LOGGER.info(f"MQTT device state updated: device_id={device_id_str}, state={state_data}")
                             self.hass.async_create_task(self.async_refresh())
-                    else:
-                        _LOGGER.debug(f"MQTT device not found in local cache: device_id={device_id_str}")
+                    except (json.JSONDecodeError, TypeError) as e:
+                        _LOGGER.warning(f"Failed to parse reportinstruct: {e}")
                         self.hass.async_create_task(self.async_refresh())
                 elif message_type == 2 and device_id:
                     device_id_str = str(device_id)
