@@ -160,6 +160,17 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         
         if connected:
             _LOGGER.info("MQTT client started successfully")
+            places_list = []
+            if isinstance(self.places, dict) and "rows" in self.places:
+                places_list = self.places["rows"]
+            elif isinstance(self.places, list):
+                places_list = self.places
+            
+            if places_list:
+                first_place = places_list[0]
+                place_id = first_place.get("placeId") or first_place.get("placeid")
+                _LOGGER.info(f"[MQTT_SYNC] Triggering device status sync after MQTT connect, place_id={place_id}")
+                self.api.sync_device_status(place_id)
         else:
             _LOGGER.warning("MQTT client failed to connect, falling back to polling")
         
