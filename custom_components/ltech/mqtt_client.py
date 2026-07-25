@@ -45,7 +45,7 @@ class LtechMqttClient:
                 endpoint=self.api_client.mqtt_broker,
                 port=1883,
                 transport="TCP",
-                secure="NONE",
+                secure=False,
                 keep_alive=60
             )
 
