@@ -23,11 +23,20 @@ class SSLAdapter(HTTPAdapter):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
+        ctx.options |= ssl.OP_NO_SSLv2
+        ctx.options |= ssl.OP_NO_SSLv3
+        ctx.options |= ssl.OP_NO_TLSv1
+        ctx.options |= ssl.OP_NO_TLSv1_1
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        try:
+            ctx.options |= ssl.OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
+        except AttributeError:
+            pass
         self.poolmanager = PoolManager(
             num_pools=connections,
             maxsize=maxsize,
             block=block,
-            ssl_version=ssl.PROTOCOL_TLS,
+            ssl_version=ssl.PROTOCOL_TLS_CLIENT,
             ssl_context=ctx,
         )
 
