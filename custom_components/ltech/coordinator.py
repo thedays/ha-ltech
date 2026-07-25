@@ -51,6 +51,10 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                     self.api.get_device_list, place_id
                 )
                 
+                await self.hass.async_add_executor_job(
+                    self.api.sync_device_status, place_id
+                )
+                
                 if isinstance(device_list, dict) and "rows" in device_list:
                     self.devices = {}
                     device_name_counts = {}

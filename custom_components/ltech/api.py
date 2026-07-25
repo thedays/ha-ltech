@@ -298,6 +298,13 @@ class LtechApiClient:
     def subscribe_device(self):
         return self._send_request(FUN_URL_DEVICE_SUBSCRIBE, {})
 
+    def sync_device_status(self, place_id):
+        """Sync device status from server."""
+        _LOGGER.info(f"[SYNC_STATUS] placeid={place_id}")
+        result = self._send_request(FUN_URL_DEVICE_SYNC_STATUS, {"placeid": place_id})
+        _LOGGER.info(f"[SYNC_STATUS] response={result}")
+        return result
+
     def unsubscribe_device(self):
         return self._send_request(FUN_URL_DEVICE_UNSUBSCRIBE, {})
 
