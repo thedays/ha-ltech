@@ -49,12 +49,12 @@ class LtechMqttClient:
             )
             _LOGGER.info("[MQTT] LinkKit instance created successfully")
 
-            _LOGGER.info(f"[MQTT] Configuring MQTT: endpoint={self.api_client.mqtt_broker}, port=1883, transport=TCP, secure=False")
+            _LOGGER.info(f"[MQTT] Configuring MQTT: endpoint={self.api_client.mqtt_broker}, port=8883, transport=TCP, secure=TLS")
             self.lk.config_mqtt(
                 endpoint=self.api_client.mqtt_broker,
-                port=1883,
+                port=8883,
                 transport="TCP",
-                secure=False,
+                secure="TLS",
                 keep_alive=60
             )
             _LOGGER.info("[MQTT] MQTT configured successfully")
