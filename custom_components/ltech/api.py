@@ -349,23 +349,24 @@ class LtechApiClient:
             return None
         
         if timestamp is None:
-            timestamp = str(int(time.time() * 1000))
+            timestamp = str(int(time.time()))
         
-        client_id = f"{self.product_key}@@@{self.device_name}"
-        sign_content = f"clientId{client_id}deviceName{self.device_name}productKey{self.product_key}timestamp{timestamp}"
+        client_id_base = f"{self.product_key}&{self.device_name}"
+        client_id = f"{client_id_base}|securemode=3,signmethod=hmacsha1,ext=1,_ss=1,lan=Python,_v=1.2.13,timestamp={timestamp}|"
+        sign_content = f"clientId{client_id_base}deviceName{self.device_name}productKey{self.product_key}timestamp{timestamp}"
         
         password = hmac.new(
             self.device_secret.encode('utf-8'),
             sign_content.encode('utf-8'),
             hashlib.sha1
-        ).digest()
+        ).hexdigest()
         
         return {
             "broker": MQTT_BROKER_CN,
-            "port": 8883,
+            "port": 1883,
             "client_id": client_id,
             "username": f"{self.device_name}&{self.product_key}",
-            "password": base64.b64encode(password).decode('utf-8'),
+            "password": password,
             "timestamp": timestamp,
             "topic": f"/{self.product_key}/{self.device_name}/user/get"
         }

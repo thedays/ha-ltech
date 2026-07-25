@@ -14,7 +14,6 @@ try:
 except ImportError as e:
     MQTT_AVAILABLE = False
     _LOGGER.warning(f"paho-mqtt import failed: {e}. MQTT push will be disabled, falling back to polling.")
-    _LOGGER.warning("To enable MQTT push, install manually: pip install paho-mqtt")
 
 
 class LtechMqttClient:
@@ -29,20 +28,21 @@ class LtechMqttClient:
         if not all([self.api_client.product_key, self.api_client.device_name, self.api_client.device_secret]):
             return None
         
-        timestamp = str(int(time.time() * 1000))
-        client_id = f"{self.api_client.product_key}@@@{self.api_client.device_name}"
-        sign_content = f"clientId{client_id}deviceName{self.api_client.device_name}productKey{self.api_client.product_key}timestamp{timestamp}"
+        timestamp = str(int(time.time()))
+        client_id_base = f"{self.api_client.product_key}&{self.api_client.device_name}"
+        client_id = f"{client_id_base}|securemode=3,signmethod=hmacsha1,ext=1,_ss=1,lan=Python,_v=1.2.13,timestamp={timestamp}|"
+        sign_content = f"clientId{client_id_base}deviceName{self.api_client.device_name}productKey{self.api_client.product_key}timestamp{timestamp}"
         
         password = hmac.new(
             self.api_client.device_secret.encode('utf-8'),
             sign_content.encode('utf-8'),
             hashlib.sha1
-        ).digest()
+        ).hexdigest()
         
         return {
             "client_id": client_id,
             "username": f"{self.api_client.device_name}&{self.api_client.product_key}",
-            "password": base64.b64encode(password).decode('utf-8'),
+            "password": password,
             "timestamp": timestamp
         }
 
@@ -99,6 +99,9 @@ class LtechMqttClient:
             
             if rc != 0:
                 _LOGGER.error(f"[MQTT] Connection failed with code {rc}")
+                _LOGGER.error(f"[MQTT] Error codes: 0=Success, 1=Protocol version, 2=Invalid client ID")
+                _LOGGER.error(f"[MQTT]              3=Server unavailable, 4=Bad username/password")
+                _LOGGER.error(f"[MQTT]              5=Not authorized")
                 return False
 
             _LOGGER.info("[MQTT] Connected successfully (sync)")
@@ -130,14 +133,14 @@ class LtechMqttClient:
             except Exception as e:
                 _LOGGER.error(f"[MQTT] Disconnect failed: {e}")
 
-    def _on_connect(self, client, userdata, flags, rc, properties=None):
+    def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.connected = True
             _LOGGER.info("[MQTT] Connected successfully")
         else:
             _LOGGER.error(f"[MQTT] Connection failed with code {rc}")
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
+    def _on_disconnect(self, client, userdata, rc):
         self.connected = False
         if rc == 0:
             _LOGGER.info("[MQTT] Disconnected")
