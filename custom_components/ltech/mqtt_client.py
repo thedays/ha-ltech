@@ -90,7 +90,7 @@ class LtechMqttClient:
     def _on_message(self, session_flag, topic, payload, qos, userdata):
         try:
             message = payload.decode("utf-8")
-            _LOGGER.debug(f"LinkKit MQTT message received: {topic} -> {message}")
+            _LOGGER.info(f"LinkKit MQTT message received: {topic} -> {message}")
 
             if self.on_message_callback:
                 self.on_message_callback(message)
