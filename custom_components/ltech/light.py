@@ -60,17 +60,12 @@ class LtechLight(LtechEntity, LightEntity):
             except (json.JSONDecodeError, TypeError):
                 device_state = {}
         
-        if not device_state:
-            maccode = self.device.get("maccode", "{}")
-            if isinstance(maccode, str):
-                try:
-                    import json
-                    maccode_data = json.loads(maccode)
-                    device_state.update(maccode_data)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+        if device_state:
+            _LOGGER.debug(f"[LIGHT_STATE] Using deviceState for device_id={self.device_id}: {device_state}")
+            return device_state
         
-        return device_state
+        _LOGGER.debug(f"[LIGHT_STATE] No state available for device_id={self.device_id}, returning empty state (default off)")
+        return {}
 
     @property
     def color_mode(self):
