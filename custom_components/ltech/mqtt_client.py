@@ -31,6 +31,8 @@ class LtechMqttClient:
                 _LOGGER.error("Failed to bind user for MQTT credentials")
                 return False
 
+        _LOGGER.info(f"[MQTT] Credentials: product_key={self.api_client.product_key}, device_name={self.api_client.device_name}, device_secret={self.api_client.device_secret[:10]}...")
+
         try:
             self.lk = linkkit.LinkKit(
                 host_name="cn-shanghai",
@@ -41,9 +43,9 @@ class LtechMqttClient:
 
             self.lk.config_mqtt(
                 endpoint=self.api_client.mqtt_broker,
-                port=8883,
+                port=1883,
                 transport="TCP",
-                secure="TLS",
+                secure="NONE",
                 keep_alive=60
             )
 
@@ -51,13 +53,16 @@ class LtechMqttClient:
             self.lk.on_disconnect = self._on_disconnect
             self.lk.on_message = self._on_message
 
-            _LOGGER.info(f"Connecting to Aliyun IoT via LinkKit")
+            _LOGGER.info(f"Connecting to Aliyun IoT via LinkKit: {self.api_client.mqtt_broker}:1883")
             self.lk.connect_async()
 
             time.sleep(3)
 
             if self.connected:
                 _LOGGER.info("MQTT connected successfully via LinkKit")
+                topic = f"/{self.api_client.product_key}/{self.api_client.device_name}/user/get"
+                _LOGGER.info(f"Subscribing to MQTT topic: {topic}")
+                self.lk.subscribe(topic, 1)
                 return True
             else:
                 _LOGGER.warning("MQTT connection failed via LinkKit")
@@ -65,6 +70,8 @@ class LtechMqttClient:
 
         except Exception as e:
             _LOGGER.error(f"LinkKit connection failed: {e}")
+            import traceback
+            _LOGGER.error(f"LinkKit connection traceback: {traceback.format_exc()}")
             return False
 
     def disconnect(self):
