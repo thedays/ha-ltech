@@ -272,11 +272,27 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         if self.mqtt_client:
             self.mqtt_client.disconnect()
 
+        try:
+            _LOGGER.info("[MQTT_START] Calling bind_user to get MQTT credentials")
+            bind_result = self.api.bind_user()
+            if bind_result and self.api.product_key and self.api.device_name and self.api.device_secret:
+                _LOGGER.info(f"[MQTT_START] MQTT credentials obtained: product_key={self.api.product_key}, device_name={self.api.device_name}")
+            else:
+                _LOGGER.error("[MQTT_START] Failed to get MQTT credentials!")
+                return False
+        except Exception as e:
+            _LOGGER.error(f"[MQTT_START] Failed to call bind_user: {e}")
+            return False
+
         self.mqtt_client = LtechMqttClient(self.api, self._on_mqtt_message, self.hass, self._on_mqtt_disconnect)
         connected = self.mqtt_client.connect()
         
         if connected:
             _LOGGER.info("MQTT client started successfully")
+        else:
+            _LOGGER.error("MQTT client failed to connect")
+        
+        if connected:
             places_list = []
             if isinstance(self.places, dict) and "rows" in self.places:
                 places_list = self.places["rows"]
@@ -287,9 +303,12 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 first_place = places_list[0]
                 place_id = first_place.get("placeId") or first_place.get("placeid")
                 _LOGGER.info(f"[MQTT_SYNC] Triggering device status sync after MQTT connect, place_id={place_id}")
-                sync_result = self.api.sync_device_status(place_id)
-                self._update_device_states_from_sync(sync_result)
-                _LOGGER.info(f"[MQTT_SYNC] Sync completed, {len(self.device_states)} device states updated")
+                try:
+                    sync_result = self.api.sync_device_status(place_id)
+                    self._update_device_states_from_sync(sync_result)
+                    _LOGGER.info(f"[MQTT_SYNC] Sync completed, {len(self.device_states)} device states updated")
+                except Exception as e:
+                    _LOGGER.error(f"[MQTT_SYNC] Failed to sync device status: {e}")
         else:
             _LOGGER.warning("MQTT client failed to connect, falling back to polling")
         
