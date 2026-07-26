@@ -36,7 +36,14 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         try:
             if not self.places:
-                self.places = await self.hass.async_add_executor_job(self.api.get_place_list)
+                try:
+                    self.places = await self.hass.async_add_executor_job(self.api.get_place_list)
+                except LtechApiError as e:
+                    _LOGGER.error(f"[UPDATE_DATA] Failed to get place list: {e}")
+                    if self.devices:
+                        _LOGGER.info(f"[UPDATE_DATA] Keeping {len(self.devices)} existing devices")
+                        return self.devices
+                    raise
             
             places_list = []
             if isinstance(self.places, dict) and "rows" in self.places:
@@ -49,15 +56,24 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 place_id = first_place.get("placeId") or first_place.get("placeid")
                 self.api.select_place(place_id)
                 
-                device_list = await self.hass.async_add_executor_job(
-                    self.api.get_device_list, place_id
-                )
+                try:
+                    device_list = await self.hass.async_add_executor_job(
+                        self.api.get_device_list, place_id
+                    )
+                except LtechApiError as e:
+                    _LOGGER.error(f"[UPDATE_DATA] Failed to get device list: {e}")
+                    if self.devices:
+                        _LOGGER.info(f"[UPDATE_DATA] Keeping {len(self.devices)} existing devices")
+                        return self.devices
+                    raise
                 
-                sync_result = await self.hass.async_add_executor_job(
-                    self.api.sync_device_status, place_id
-                )
-                
-                self._update_device_states_from_sync(sync_result)
+                try:
+                    sync_result = await self.hass.async_add_executor_job(
+                        self.api.sync_device_status, place_id
+                    )
+                    self._update_device_states_from_sync(sync_result)
+                except LtechApiError as e:
+                    _LOGGER.error(f"[UPDATE_DATA] Failed to sync device status: {e}")
                 
                 if isinstance(device_list, dict) and "rows" in device_list:
                     self.devices = {}
@@ -103,6 +119,10 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             finally:
                 self._reauth_attempted = False
         except LtechApiError as e:
+            _LOGGER.error(f"[UPDATE_DATA] Error updating data: {e}")
+            if self.devices:
+                _LOGGER.info(f"[UPDATE_DATA] Keeping existing {len(self.devices)} devices")
+                return self.devices
             raise UpdateFailed(f"Error updating data: {e}") from e
 
     def get_device(self, device_id):
