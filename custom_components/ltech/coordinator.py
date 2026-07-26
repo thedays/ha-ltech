@@ -563,6 +563,25 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"[MESH] Error controlling device {device_id}: {e}")
             return False
 
+    def control_device_via_mqtt(self, device_id, control_data):
+        if not self.mqtt_client or not self.mqtt_client.is_connected():
+            _LOGGER.debug(f"[MQTT_CONTROL] MQTT not connected, falling back to cloud API for device {device_id}")
+            return False
+
+        try:
+            _LOGGER.info(f"[MQTT_CONTROL] Publishing control data for device {device_id}: {str(control_data)[:200]}")
+            result = self.mqtt_client.publish(control_data)
+            
+            if result:
+                _LOGGER.info(f"[MQTT_CONTROL] Successfully published control data for device {device_id}")
+            else:
+                _LOGGER.warning(f"[MQTT_CONTROL] Failed to publish control data for device {device_id}")
+            
+            return result
+        except Exception as e:
+            _LOGGER.error(f"[MQTT_CONTROL] Error publishing control data for device {device_id}: {e}")
+            return False
+
     def _on_mesh_message(self, message):
         try:
             _LOGGER.debug(f"Mesh message received: {message}")

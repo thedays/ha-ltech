@@ -147,6 +147,8 @@ class LtechLight(LtechEntity, LightEntity):
         color_temp_kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN)
         
         try:
+            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
                 mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
@@ -163,7 +165,31 @@ class LtechLight(LtechEntity, LightEntity):
                     True,
                     brightness,
                     color_temp_kelvin,
+                    platform_device_id,
                 )
+                
+                mqtt_success = False
+                if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
+                    action = {}
+                    action["CharSwitch"] = "66BB0000000001EB"
+                    if brightness is not None:
+                        brightness_hex = f"{int((brightness / 255) * 100):02X}"
+                        action["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
+                    if color_temp_kelvin is not None:
+                        color_temp_mired = 1000000 // color_temp_kelvin
+                        temp_hex = f"{color_temp_mired:04X}"
+                        action["CharTemp"] = f"66BB00000002{temp_hex}EB"
+                    
+                    mqtt_payload = json.dumps({
+                        "deviceid": self.device_id,
+                        "action": action
+                    })
+                    mqtt_success = await self.hass.async_add_executor_job(
+                        self.coordinator.control_device_via_mqtt,
+                        self.device_id,
+                        mqtt_payload
+                    )
+                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control: {mqtt_success}")
             
             self.coordinator.device_states[self.device_id] = {"is_on": True}
             if brightness is not None:
@@ -179,6 +205,8 @@ class LtechLight(LtechEntity, LightEntity):
 
     async def async_turn_off(self, **kwargs):
         try:
+            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
                 mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
@@ -188,7 +216,24 @@ class LtechLight(LtechEntity, LightEntity):
                     self.coordinator.api.control_light,
                     self.device_id,
                     False,
+                    None,
+                    None,
+                    platform_device_id,
                 )
+                
+                mqtt_success = False
+                if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
+                    action = {"CharSwitch": "66BB0000000000EB"}
+                    mqtt_payload = json.dumps({
+                        "deviceid": self.device_id,
+                        "action": action
+                    })
+                    mqtt_success = await self.hass.async_add_executor_job(
+                        self.coordinator.control_device_via_mqtt,
+                        self.device_id,
+                        mqtt_payload
+                    )
+                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control off: {mqtt_success}")
             
             self.coordinator.device_states[self.device_id] = {"is_on": False}
             self.schedule_update_ha_state()

@@ -142,6 +142,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         try:
+            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
                 if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
@@ -159,12 +161,14 @@ class LtechSwitch(LtechEntity, SwitchEntity):
                         self.device_id,
                         self._zone_index,
                         True,
+                        platform_device_id,
                     )
                 else:
                     await self.hass.async_add_executor_job(
                         self.coordinator.api.control_switch,
                         self.device_id,
                         True,
+                        platform_device_id,
                     )
 
             self._is_on = True
@@ -177,6 +181,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         try:
+            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
                 if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
@@ -194,12 +200,14 @@ class LtechSwitch(LtechEntity, SwitchEntity):
                         self.device_id,
                         self._zone_index,
                         False,
+                        platform_device_id,
                     )
                 else:
                     await self.hass.async_add_executor_job(
                         self.coordinator.api.control_switch,
                         self.device_id,
                         False,
+                        platform_device_id,
                     )
 
             self._is_on = False

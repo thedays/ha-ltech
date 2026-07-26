@@ -233,24 +233,32 @@ class LtechApiClient:
         _LOGGER.info(f"[GET_DEVICE_LIST] placeid={place_id}, type={type(place_id)}")
         return self._send_request(FUN_URL_DEVICE_LIST, data, timeout=120)
 
-    def request_device_control(self, device_ids):
-        data = {"deviceIds": device_ids}
+    def request_device_control(self, device_ids, platform_device_ids=None):
+        deviceid_objs = [{"deviceid": d} for d in device_ids]
+        
+        platformdeviceid_objs = None
+        if platform_device_ids:
+            platformdeviceid_objs = [{"platformdeviceid": p} for p in platform_device_ids]
+        
+        data = {"deviceids": deviceid_objs}
+        if platformdeviceid_objs:
+            data["platformdeviceids"] = platformdeviceid_objs
         return self._send_request(FUN_URL_DEVICE_REQUEST_CONTROL, data)
 
     def get_device_online_status(self, device_ids):
         data = {"deviceIds": device_ids}
         return self._send_request(FUN_URL_DEVICE_ONLINE_STATUS, data)
 
-    def control_device(self, device_id, action):
-        self.request_device_control([device_id])
+    def control_device(self, device_id, action, platform_device_id=None):
+        if platform_device_id:
+            platform_device_ids = [platform_device_id]
+            result = self.request_device_control([device_id], platform_device_ids)
+        else:
+            result = self.request_device_control([device_id])
         
-        data = {
-            "deviceId": device_id,
-            "action": action,
-        }
-        return self._send_request(FUN_URL_DEVICE_CONTROL, data)
+        return result
 
-    def control_light(self, device_id, on, brightness=None, color_temp=None):
+    def control_light(self, device_id, on, brightness=None, color_temp=None, platform_device_id=None):
         action = {}
         
         if on:
@@ -259,16 +267,17 @@ class LtechApiClient:
             action["CharSwitch"] = "66BB0000000000EB"
         
         if brightness is not None:
-            brightness_hex = f"{brightness:02X}"
+            brightness_percent = int((brightness / 255) * 100)
+            brightness_hex = f"{brightness_percent:02X}"
             action["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
         
         if color_temp is not None:
             temp_hex = f"{color_temp:04X}"
             action["CharTemp"] = f"66BB00000002{temp_hex}EB"
         
-        return self.control_device(device_id, action)
+        return self.control_device(device_id, action, platform_device_id)
 
-    def control_switch(self, device_id, on):
+    def control_switch(self, device_id, on, platform_device_id=None):
         action = {}
 
         if on:
@@ -276,15 +285,15 @@ class LtechApiClient:
         else:
             action["CharSwitch"] = "66BB0000000000EB"
 
-        return self.control_device(device_id, action)
+        return self.control_device(device_id, action, platform_device_id)
 
-    def control_switch_zone(self, device_id, zone_index, on):
+    def control_switch_zone(self, device_id, zone_index, on, platform_device_id=None):
         action = {}
         zone_hex = f"{zone_index:02X}"
         state_hex = "01" if on else "00"
         action["CharSwitch"] = f"66BB00000000{zone_hex}{state_hex}EB"
 
-        return self.control_device(device_id, action)
+        return self.control_device(device_id, action, platform_device_id)
 
     def subscribe_device(self):
         return self._send_request(FUN_URL_DEVICE_SUBSCRIBE, {})

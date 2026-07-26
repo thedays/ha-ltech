@@ -174,3 +174,27 @@ class LtechMqttClient:
 
     def is_connected(self):
         return self.connected
+
+    def publish(self, payload):
+        if not self.client or not self.connected:
+            _LOGGER.error("[MQTT] Cannot publish, client not connected")
+            return False
+        
+        try:
+            publish_topic = f"/{self.api_client.product_key}/{self.api_client.device_name}/user/update"
+            _LOGGER.info(f"[MQTT] Publishing to topic: {publish_topic}")
+            _LOGGER.info(f"[MQTT] Payload: {str(payload)[:200]}")
+            
+            result = self.client.publish(publish_topic, payload, qos=0)
+            _LOGGER.info(f"[MQTT] Publish result: {result.rc}")
+            
+            if result.rc == 0:
+                _LOGGER.info("[MQTT] Publish successful")
+                return True
+            else:
+                _LOGGER.error(f"[MQTT] Publish failed with result code {result.rc}")
+                return False
+                
+        except Exception as e:
+            _LOGGER.error(f"[MQTT] Publish error: {e}")
+            return False
