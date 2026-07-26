@@ -24,21 +24,44 @@ class SSLAdapter(HTTPAdapter):
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        ctx.maximum_version = ssl.TLSVersion.TLSv1_3
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         try:
             ctx.options |= ssl.OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
         except AttributeError:
             pass
         try:
-            ctx.set_ciphers('DEFAULT')
+            ctx.set_ciphers('ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256')
         except Exception:
-            pass
+            try:
+                ctx.set_ciphers('DEFAULT')
+            except Exception:
+                pass
         self.poolmanager = PoolManager(
             num_pools=connections,
             maxsize=maxsize,
             block=block,
             ssl_context=ctx,
         )
+
+    def proxy_manager_for(self, proxy_url, **proxy_kwargs):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+        try:
+            ctx.options |= ssl.OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
+        except AttributeError:
+            pass
+        try:
+            ctx.set_ciphers('ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256')
+        except Exception:
+            try:
+                ctx.set_ciphers('DEFAULT')
+            except Exception:
+                pass
+        proxy_kwargs['ssl_context'] = ctx
+        return super().proxy_manager_for(proxy_url, **proxy_kwargs)
 
 from .const import (
     APP_ID_DEFAULT,
