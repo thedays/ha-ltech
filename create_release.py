@@ -6,17 +6,15 @@ import sys
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 REPO_OWNER = 'thedays'
 REPO_NAME = 'ha-ltech'
-TAG_NAME = 'v2.3.58'
-RELEASE_TITLE = 'v2.3.58'
-RELEASE_NOTES = '''Full Bluetooth Mesh implementation
+TAG_NAME = 'v2.3.59'
+RELEASE_TITLE = 'v2.3.59'
+RELEASE_NOTES = '''Fix device status not updating
 
-- Implemented complete Mesh crypto layer: NetKey/K1/K2/K3/K4 derivation, AES-CCM encryption/decryption
-- Added Proxy Protocol SAR (Segmentation and Reassembly) for large messages
-- Implemented sequence number management with async lock for thread safety
-- Added IV Index synchronization from place info API
-- Implemented proper Network PDU building with encryption
-- Added Vendor Model message parsing for Ltech custom protocol
-- Updated version to 2.3.58'''
+- Added _update_device_states_from_sync() method to parse and store device states from sync_device_status API response
+- Updated _async_update_data() to call sync_device_status and update device_states dictionary
+- Device states are now properly updated during each refresh cycle
+- Light and Switch entities now get real-time states from device_states dictionary
+- Updated version to 2.3.59'''
 ZIP_FILE = 'ltech-hass-integration.zip'
 
 

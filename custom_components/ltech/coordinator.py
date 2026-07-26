@@ -52,9 +52,11 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                     self.api.get_device_list, place_id
                 )
                 
-                await self.hass.async_add_executor_job(
+                sync_result = await self.hass.async_add_executor_job(
                     self.api.sync_device_status, place_id
                 )
+                
+                self._update_device_states_from_sync(sync_result)
                 
                 if isinstance(device_list, dict) and "rows" in device_list:
                     self.devices = {}
@@ -150,6 +152,50 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         if device_id_str in self.device_states:
             return self.device_states[device_id_str]
         return None
+
+    def _update_device_states_from_sync(self, sync_result):
+        """Update device states from sync_device_status API response."""
+        if not sync_result:
+            return
+        
+        try:
+            if isinstance(sync_result, dict):
+                rows = sync_result.get("rows", [])
+                if isinstance(rows, list):
+                    for device_data in rows:
+                        device_id = device_data.get("deviceId") or device_data.get("deviceid")
+                        if device_id:
+                            device_id_str = str(device_id)
+                            device_state = device_data.get("deviceState", {})
+                            if isinstance(device_state, str):
+                                try:
+                                    device_state = json.loads(device_state)
+                                except (json.JSONDecodeError, TypeError):
+                                    device_state = {}
+                            
+                            if isinstance(device_state, dict):
+                                self.device_states[device_id_str] = device_state
+                                _LOGGER.debug(f"[SYNC_UPDATE] device_id={device_id_str}, state={device_state}")
+            elif isinstance(sync_result, list):
+                for device_data in sync_result:
+                    if isinstance(device_data, dict):
+                        device_id = device_data.get("deviceId") or device_data.get("deviceid")
+                        if device_id:
+                            device_id_str = str(device_id)
+                            device_state = device_data.get("deviceState", {})
+                            if isinstance(device_state, str):
+                                try:
+                                    device_state = json.loads(device_state)
+                                except (json.JSONDecodeError, TypeError):
+                                    device_state = {}
+                            
+                            if isinstance(device_state, dict):
+                                self.device_states[device_id_str] = device_state
+                                _LOGGER.debug(f"[SYNC_UPDATE] device_id={device_id_str}, state={device_state}")
+            
+            _LOGGER.info(f"[SYNC_UPDATE] Updated {len(self.device_states)} device states from sync")
+        except Exception as e:
+            _LOGGER.error(f"[SYNC_UPDATE] Failed to update device states: {e}")
 
     def start_mqtt(self):
         if self.mqtt_client:
