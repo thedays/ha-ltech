@@ -144,16 +144,12 @@ class LtechLight(LtechEntity, LightEntity):
         try:
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
-                device_address = self._get_mesh_address()
-                if device_address:
-                    mesh_success = await self.coordinator.send_mesh_command(
-                        device_address, "onoff", on=True
-                    )
-                    if brightness is not None:
-                        mesh_level = int((brightness / 255) * 0xFFFF)
-                        await self.coordinator.send_mesh_command(
-                            device_address, "level", level=mesh_level
-                        )
+                mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
+                if brightness is not None:
+                    await self.coordinator.control_device_via_mesh(self.device_id, "brightness", brightness)
+                if color_temp_kelvin is not None:
+                    color_temp_mired = 1000000 // color_temp_kelvin
+                    await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
             
             if not mesh_success:
                 await self.hass.async_add_executor_job(
@@ -164,13 +160,7 @@ class LtechLight(LtechEntity, LightEntity):
                     color_temp_kelvin,
                 )
             
-            self._is_on = True
-            if brightness is not None:
-                self._brightness = brightness
-            if color_temp_kelvin is not None:
-                self._color_temp = color_temp_kelvin
-            
-            self.async_write_ha_state()
+            await self.coordinator.async_refresh()
         
         except LtechApiError as e:
             _LOGGER.error("Failed to turn on light: %s", e)
@@ -179,11 +169,7 @@ class LtechLight(LtechEntity, LightEntity):
         try:
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
-                device_address = self._get_mesh_address()
-                if device_address:
-                    mesh_success = await self.coordinator.send_mesh_command(
-                        device_address, "onoff", on=False
-                    )
+                mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
             
             if not mesh_success:
                 await self.hass.async_add_executor_job(
@@ -192,27 +178,10 @@ class LtechLight(LtechEntity, LightEntity):
                     False,
                 )
             
-            self._is_on = False
-            self.async_write_ha_state()
+            await self.coordinator.async_refresh()
         
         except LtechApiError as e:
             _LOGGER.error("Failed to turn off light: %s", e)
-
-    def _get_mesh_address(self):
-        device = self.coordinator.get_device(self.device_id)
-        if device:
-            unicast_address = (
-                device.get("unicastAddress") or 
-                device.get("unicastaddress") or 
-                device.get("deviceAddress") or 
-                device.get("deviceaddress")
-            )
-            if unicast_address:
-                try:
-                    return int(unicast_address, 16) if isinstance(unicast_address, str) else unicast_address
-                except (ValueError, TypeError):
-                    pass
-        return None
 
     def _parse_state_value(self, hex_string):
         if not isinstance(hex_string, str) or len(hex_string) < 8:

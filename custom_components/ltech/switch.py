@@ -128,19 +128,30 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         try:
-            if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_switch_zone,
-                    self.device_id,
-                    self._zone_index,
-                    True,
-                )
-            else:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_switch,
-                    self.device_id,
-                    True,
-                )
+            mesh_success = False
+            if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    control_data = self._build_zone_control_data(self._zone_index, True)
+                    mesh_success = await self.coordinator.control_device_via_mesh(
+                        self.device_id, "control", control_data
+                    )
+                else:
+                    mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
+            
+            if not mesh_success:
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_switch_zone,
+                        self.device_id,
+                        self._zone_index,
+                        True,
+                    )
+                else:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_switch,
+                        self.device_id,
+                        True,
+                    )
 
             self._is_on = True
             self.async_write_ha_state()
@@ -150,19 +161,30 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         try:
-            if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_switch_zone,
-                    self.device_id,
-                    self._zone_index,
-                    False,
-                )
-            else:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_switch,
-                    self.device_id,
-                    False,
-                )
+            mesh_success = False
+            if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    control_data = self._build_zone_control_data(self._zone_index, False)
+                    mesh_success = await self.coordinator.control_device_via_mesh(
+                        self.device_id, "control", control_data
+                    )
+                else:
+                    mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
+            
+            if not mesh_success:
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_switch_zone,
+                        self.device_id,
+                        self._zone_index,
+                        False,
+                    )
+                else:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_switch,
+                        self.device_id,
+                        False,
+                    )
 
             self._is_on = False
             self.async_write_ha_state()
@@ -220,3 +242,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             return False
 
         return False
+
+    def _build_zone_control_data(self, zone_index, on):
+        """Build control data for multi-zone switch."""
+        status_value = 1 if on else 0
+        return f"66BB27C000002A002200090ED8010000000018001400180040010004015A00AD0204030605040018031C00{status_value:02X}EB"

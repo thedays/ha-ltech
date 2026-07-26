@@ -255,12 +255,14 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                     net_key = info.get("netkey")
                     app_key = info.get("applicationkey")
                     mesh_uuid = info.get("meshuuid")
+                    iv_index = info.get("ivindex", 0)
                     
                     if net_key and mesh_uuid:
-                        _LOGGER.info(f"Mesh keys found: netkey={net_key[:8]}..., appkey={app_key[:8]}..., uuid={mesh_uuid[:8]}...")
+                        _LOGGER.info(f"Mesh keys found: netkey={net_key[:8]}..., appkey={app_key[:8]}..., uuid={mesh_uuid[:8]}..., iv_index={iv_index}")
                         
                         self.mesh_manager = LtechMeshManager()
                         self.mesh_manager.set_keys(net_key, app_key, mesh_uuid)
+                        self.mesh_manager.set_iv_index(iv_index)
                         self.mesh_manager.set_message_callback(self._on_mesh_message)
                         
                         await self.mesh_manager.connect()
@@ -268,6 +270,20 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                         if self.mesh_manager.connected:
                             self.mesh_enabled = True
                             _LOGGER.info("Bluetooth Mesh connected successfully")
+                            
+                            device_addresses = {}
+                            for device_id, device in self.devices.items():
+                                mesh_addr = device.get("meshaddr") or device.get("meshAddress")
+                                if mesh_addr:
+                                    try:
+                                        addr_int = int(mesh_addr)
+                                        device_addresses[device_id] = addr_int
+                                        _LOGGER.debug(f"[MESH_ADDR] device_id={device_id}, meshaddr={addr_int}")
+                                    except ValueError:
+                                        _LOGGER.debug(f"[MESH_ADDR] Invalid meshaddr for device {device_id}: {mesh_addr}")
+                            
+                            self.mesh_manager.set_device_addresses(device_addresses)
+                            _LOGGER.info(f"[MESH] Set {len(device_addresses)} device addresses")
                         else:
                             _LOGGER.warning("Bluetooth Mesh connection failed, falling back to cloud API")
                     else:
@@ -289,10 +305,38 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             self.mesh_enabled = False
             _LOGGER.info("Bluetooth Mesh disconnected")
 
+    async def control_device_via_mesh(self, device_id, control_type, value):
+        if not self.mesh_enabled or not self.mesh_manager:
+            _LOGGER.debug(f"[MESH] Mesh not enabled, falling back to cloud API for device {device_id}")
+            return False
+
+        try:
+            if control_type == "on":
+                result = await self.mesh_manager.set_device_on(device_id, value)
+            elif control_type == "brightness":
+                result = await self.mesh_manager.set_device_brightness(device_id, value)
+            elif control_type == "color_temp":
+                result = await self.mesh_manager.set_device_color_temp(device_id, value)
+            elif control_type == "control":
+                result = await self.mesh_manager.send_device_control(device_id, value)
+            else:
+                _LOGGER.warning(f"[MESH] Unknown control type: {control_type}")
+                result = False
+
+            if result:
+                _LOGGER.info(f"[MESH] Successfully controlled device {device_id} via Mesh: {control_type}={value}")
+            else:
+                _LOGGER.warning(f"[MESH] Failed to control device {device_id} via Mesh")
+
+            return result
+        except Exception as e:
+            _LOGGER.error(f"[MESH] Error controlling device {device_id}: {e}")
+            return False
+
     def _on_mesh_message(self, message):
         try:
             _LOGGER.debug(f"Mesh message received: {message}")
-            self.hass.async_create_task(self.async_refresh())
+            self._schedule_refresh()
         except Exception as e:
             _LOGGER.error(f"Error processing Mesh message: {e}")
 
