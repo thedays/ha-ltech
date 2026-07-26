@@ -6,16 +6,15 @@ import sys
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 REPO_OWNER = 'thedays'
 REPO_NAME = 'ha-ltech'
-TAG_NAME = 'v2.3.60'
-RELEASE_TITLE = 'v2.3.60'
-RELEASE_NOTES = '''Fix MQTT device status update
+TAG_NAME = 'v2.3.61'
+RELEASE_TITLE = 'v2.3.61'
+RELEASE_NOTES = '''Fix MQTT device matching
 
-- Rewrote _on_mqtt_message to correctly parse MQTT message format (devicename/payload/productkey)
-- Added _find_device_id_by_iot_name() to match devices by iotdevicename/iotproductkey
-- Added _parse_mqtt_payload() to parse payload as JSON or hex (66BB...EB) format
-- Added _parse_hex_payload() to extract CharSwitch state from hex payload
-- MQTT messages now properly update device_states dictionary for real-time status
-- Updated version to 2.3.60'''
+- Changed device matching logic from iotdevicename to platformdeviceid
+- MQTT devicename is now matched against platformdeviceid field (format: {productkey}_{mqtt_devicename})
+- Fixed _find_device_id_by_iot_name() to check platformdeviceid first
+- MQTT messages now properly match devices using platformdeviceid field
+- Updated version to 2.3.61'''
 ZIP_FILE = 'ltech-hass-integration.zip'
 
 

@@ -276,6 +276,20 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
     def _find_device_id_by_iot_name(self, iot_device_name, iot_product_key=None):
         """Find device ID by IoT device name and product key."""
         for device_id, device in self.devices.items():
+            platform_device_id = device.get("platformdeviceid") or device.get("platformDeviceId")
+            
+            if platform_device_id:
+                if iot_product_key:
+                    expected_platform_id = f"{iot_product_key}_{iot_device_name}"
+                    if platform_device_id == expected_platform_id:
+                        _LOGGER.info(f"[MQTT_MATCH] Found device {device_id} by platformdeviceid={platform_device_id}")
+                        return device_id
+                
+                if iot_device_name in platform_device_id:
+                    _LOGGER.info(f"[MQTT_MATCH] Found device {device_id} by platformdeviceid containing {iot_device_name}")
+                    return device_id
+        
+        for device_id, device in self.devices.items():
             device_iot_name = device.get("iotdevicename") or device.get("iotDeviceName")
             device_iot_key = device.get("iotproductkey") or device.get("iotProductKey")
             
