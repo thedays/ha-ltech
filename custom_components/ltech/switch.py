@@ -103,20 +103,7 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             _LOGGER.debug(f"[SWITCH_STATE] Using deviceState for device_id={self.device_id}: {device_state}")
             return device_state
         
-        maccode = self.device.get("maccode", "")
-        if maccode:
-            try:
-                maccode_data = json.loads(maccode)
-                if isinstance(maccode_data, dict):
-                    char_keys = [k for k in maccode_data.keys() if k.startswith("Char")]
-                    if char_keys:
-                        char_state = {k: maccode_data[k] for k in char_keys}
-                        _LOGGER.debug(f"[SWITCH_STATE] Using maccode default for device_id={self.device_id}: {char_state}")
-                        return char_state
-            except (json.JSONDecodeError, TypeError):
-                pass
-        
-        _LOGGER.debug(f"[SWITCH_STATE] No state available for device_id={self.device_id}, returning empty state")
+        _LOGGER.debug(f"[SWITCH_STATE] No reliable state available for device_id={self.device_id}, returning empty state (default off)")
         return {}
     
     @property
