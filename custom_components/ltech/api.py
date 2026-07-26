@@ -62,6 +62,8 @@ class LtechApiClient:
         self._ssl_context = ssl.create_default_context()
         self._ssl_context.check_hostname = False
         self._ssl_context.verify_mode = ssl.CERT_NONE
+        self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+        self._ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
