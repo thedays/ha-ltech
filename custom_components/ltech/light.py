@@ -160,14 +160,17 @@ class LtechLight(LtechEntity, LightEntity):
                     await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
             
             if not mesh_success:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_light,
-                    self.device_id,
-                    True,
-                    brightness,
-                    color_temp_kelvin,
-                    platform_device_id,
-                )
+                try:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_light,
+                        self.device_id,
+                        True,
+                        brightness,
+                        color_temp_kelvin,
+                        platform_device_id,
+                    )
+                except Exception as api_error:
+                    _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
                 
                 mqtt_success = False
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
@@ -181,16 +184,22 @@ class LtechLight(LtechEntity, LightEntity):
                         temp_hex = f"{color_temp_mired:04X}"
                         action["CharTemp"] = f"66BB00000002{temp_hex}EB"
                     
-                    mqtt_payload = json.dumps({
-                        "deviceid": self.device_id,
+                    mqtt_data = {
+                        "deviceid": int(self.device_id),
                         "action": action
-                    })
+                    }
+                    if platform_device_id:
+                        mqtt_data["platformdeviceid"] = platform_device_id
+                    
+                    mqtt_payload = json.dumps(mqtt_data)
                     mqtt_success = await self.hass.async_add_executor_job(
                         self.coordinator.control_device_via_mqtt,
                         self.device_id,
                         mqtt_payload
                     )
-                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control: {mqtt_success}")
+                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control: {mqtt_success}, payload: {mqtt_payload}")
+                else:
+                    _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
             
             self.coordinator.device_states[self.device_id] = {"is_on": True}
             if brightness is not None:
@@ -213,28 +222,37 @@ class LtechLight(LtechEntity, LightEntity):
                 mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
             
             if not mesh_success:
-                await self.hass.async_add_executor_job(
-                    self.coordinator.api.control_light,
-                    self.device_id,
-                    False,
-                    None,
-                    None,
-                    platform_device_id,
-                )
+                try:
+                    await self.hass.async_add_executor_job(
+                        self.coordinator.api.control_light,
+                        self.device_id,
+                        False,
+                        None,
+                        None,
+                        platform_device_id,
+                    )
+                except Exception as api_error:
+                    _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
                 
                 mqtt_success = False
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
                     action = {"CharSwitch": "66BB0000000000EB"}
-                    mqtt_payload = json.dumps({
-                        "deviceid": self.device_id,
+                    mqtt_data = {
+                        "deviceid": int(self.device_id),
                         "action": action
-                    })
+                    }
+                    if platform_device_id:
+                        mqtt_data["platformdeviceid"] = platform_device_id
+                    
+                    mqtt_payload = json.dumps(mqtt_data)
                     mqtt_success = await self.hass.async_add_executor_job(
                         self.coordinator.control_device_via_mqtt,
                         self.device_id,
                         mqtt_payload
                     )
-                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control off: {mqtt_success}")
+                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control off: {mqtt_success}, payload: {mqtt_payload}")
+                else:
+                    _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
             
             self.coordinator.device_states[self.device_id] = {"is_on": False}
             self.schedule_update_ha_state()
