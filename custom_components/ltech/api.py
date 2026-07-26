@@ -1,51 +1,17 @@
 import base64
 import hashlib
 import hmac
+import http.client
 import json
 import logging
 import ssl
 import time
-import warnings
+import uuid
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
-from urllib3.util.retry import Retry
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
 _LOGGER = logging.getLogger(__name__)
-
-warnings.filterwarnings("ignore", message="Unverified HTTPS request")
-
-class SSLAdapter(HTTPAdapter):
-    def init_poolmanager(self, connections, maxsize, block=False):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        ctx.options &= ~ssl.OP_NO_SSLv2
-        ctx.options &= ~ssl.OP_NO_SSLv3
-        ctx.options &= ~ssl.OP_NO_TLSv1
-        ctx.options &= ~ssl.OP_NO_TLSv1_1
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-        try:
-            ctx.options |= ssl.OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
-        except AttributeError:
-            pass
-        try:
-            ctx.set_ciphers('ALL:@SECLEVEL=1')
-        except Exception:
-            try:
-                ctx.set_ciphers('DEFAULT')
-            except Exception:
-                pass
-        self.poolmanager = PoolManager(
-            num_pools=connections,
-            maxsize=maxsize,
-            block=block,
-            ssl_context=ctx,
-        )
 
 from .const import (
     APP_ID_DEFAULT,
@@ -93,15 +59,9 @@ class LtechApiClient:
         self.mesh_uuid = None
         self.mqtt_broker = MQTT_BROKER_CN
         
-        self._requests_session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        self._requests_session.mount("https://", SSLAdapter())
-        self._requests_session.mount("http://", adapter)
+        self._ssl_context = ssl.create_default_context()
+        self._ssl_context.check_hostname = False
+        self._ssl_context.verify_mode = ssl.CERT_NONE
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
@@ -175,25 +135,30 @@ class LtechApiClient:
     def _send_request(self, method, data=None, timeout=60, retry_on_auth_error=True):
         url = f"{self.server_url}{REST_URL}"
         payload = self._build_request(method, data)
+        payload_str = json.dumps(payload, separators=(',', ':'))
         
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "SmartHome/3 CFNetwork/3890.100.1 Darwin/27.0.0",
+            "Content-Length": str(len(payload_str)),
         }
         
         try:
             _LOGGER.info(f"[API_REQUEST] method={method}, url={url}, data={data}, session={self.session[:20]}..., secret_key={self.secret_key[:20]}...")
-            _LOGGER.debug(f"[API_REQUEST] full_payload={json.dumps(payload, separators=(',', ':'))}")
+            _LOGGER.debug(f"[API_REQUEST] full_payload={payload_str}")
             _LOGGER.debug(f"[API_REQUEST] headers={headers}")
             
-            response = self._requests_session.post(url, data=json.dumps(payload), headers=headers, verify=False, timeout=timeout)
+            conn = http.client.HTTPSConnection("apic.ltsys.com.cn", port=2443, context=self._ssl_context, timeout=timeout)
+            conn.request("POST", "/openapi/rest", body=payload_str, headers=headers)
+            response = conn.getresponse()
+            response_data = response.read().decode("utf-8")
+            conn.close()
             
-            _LOGGER.debug(f"[API_RESPONSE] status_code={response.status_code}")
-            _LOGGER.debug(f"[API_RESPONSE] headers={dict(response.headers)}")
-            _LOGGER.debug(f"[API_RESPONSE] text={response.text}")
+            _LOGGER.debug(f"[API_RESPONSE] status_code={response.status}")
+            _LOGGER.debug(f"[API_RESPONSE] headers={dict(response.getheaders())}")
+            _LOGGER.debug(f"[API_RESPONSE] text={response_data}")
             
-            response.raise_for_status()
-            result = response.json()
+            result = json.loads(response_data)
             
             _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
             
@@ -211,12 +176,11 @@ class LtechApiClient:
             
             return result.get("data", result.get("message"))
         
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             _LOGGER.error(f"[API_REQUEST_ERROR] method={method}, error={str(e)}")
             raise LtechApiError(f"Request failed: {str(e)}") from e
 
     def login(self):
-        import uuid
         push_id = str(uuid.uuid4()).replace("-", "")[:32]
         
         login_data = [
@@ -315,11 +279,6 @@ class LtechApiClient:
         return self.control_device(device_id, action)
 
     def control_switch_zone(self, device_id, zone_index, on):
-        """Control a specific zone of a multi-zone switch.
-
-        The CharSwitch format for zone control is:
-        66BB + 0000 + 0000 + zone_hex + state_hex + EB
-        """
         action = {}
         zone_hex = f"{zone_index:02X}"
         state_hex = "01" if on else "00"
@@ -331,7 +290,6 @@ class LtechApiClient:
         return self._send_request(FUN_URL_DEVICE_SUBSCRIBE, {})
 
     def sync_device_status(self, place_id):
-        """Sync device status from server."""
         _LOGGER.info(f"[SYNC_STATUS] placeid={place_id}")
         result = self._send_request(FUN_URL_DEVICE_SYNC_STATUS, {"placeid": place_id})
         _LOGGER.info(f"[SYNC_STATUS] response={result}")
