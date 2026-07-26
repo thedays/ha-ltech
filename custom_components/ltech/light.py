@@ -165,6 +165,11 @@ class LtechLight(LtechEntity, LightEntity):
                     color_temp_kelvin,
                 )
             
+            self.coordinator.device_states[self.device_id] = {"is_on": True}
+            if brightness is not None:
+                self.coordinator.device_states[self.device_id]["CharBrightness"] = hex(int((brightness / 255) * 100))[2:].upper().zfill(2)
+            self.schedule_update_ha_state()
+            
             await self.coordinator.async_refresh()
         
         except LtechAuthError as e:
@@ -184,6 +189,9 @@ class LtechLight(LtechEntity, LightEntity):
                     self.device_id,
                     False,
                 )
+            
+            self.coordinator.device_states[self.device_id] = {"is_on": False}
+            self.schedule_update_ha_state()
             
             await self.coordinator.async_refresh()
         
