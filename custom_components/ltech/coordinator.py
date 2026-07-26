@@ -237,48 +237,103 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             try:
                 data = json.loads(payload)
             except json.JSONDecodeError:
-                data = json.loads(f"{{{payload}}}")
+                try:
+                    data = json.loads(f"{{{payload}}}")
+                except json.JSONDecodeError:
+                    _LOGGER.warning(f"[MQTT_ERROR] Failed to parse JSON: {payload[:200]}")
+                    return
             
-            if isinstance(data, dict):
-                message_type = data.get("messagetype")
-                device_id = data.get("deviceid")
-                report_instruct = data.get("reportinstruct")
+            if not isinstance(data, dict):
+                return
+            
+            mqtt_devicename = data.get("devicename")
+            mqtt_payload = data.get("payload")
+            mqtt_productkey = data.get("productkey")
+            
+            _LOGGER.info(f"[MQTT_RECV] devicename={mqtt_devicename}, productkey={mqtt_productkey}, payload={str(mqtt_payload)[:200]}")
+            
+            if mqtt_devicename and mqtt_payload:
+                device_id = self._find_device_id_by_iot_name(mqtt_devicename, mqtt_productkey)
                 
-                _LOGGER.info(f"[MQTT_RECV] messagetype={message_type}, deviceid={device_id}, reportinstruct={report_instruct}")
-                
-                if message_type == 29 and device_id and report_instruct:
+                if device_id:
                     device_id_str = str(device_id)
-                    try:
-                        if isinstance(report_instruct, str):
-                            state_data = json.loads(report_instruct)
-                        else:
-                            state_data = report_instruct
-                        
-                        if isinstance(state_data, dict):
-                            self.device_states[device_id_str] = state_data
-                            _LOGGER.info(f"[MQTT_UPDATE] device_id={device_id_str}, state={state_data}")
-                            self._schedule_refresh()
-                    except (json.JSONDecodeError, TypeError) as e:
-                        _LOGGER.warning(f"[MQTT_ERROR] Failed to parse reportinstruct: {e}")
-                        self._schedule_refresh()
-                elif message_type == 2 and device_id:
-                    device_id_str = str(device_id)
-                    state = data.get("state")
-                    if device_id_str in self.devices and state is not None:
-                        self.devices[device_id_str]["onlineflag"] = int(state)
-                        _LOGGER.info(f"[MQTT_ONLINE] device_id={device_id_str}, online={state}")
+                    state_data = self._parse_mqtt_payload(mqtt_payload)
+                    
+                    if state_data:
+                        self.device_states[device_id_str] = state_data
+                        _LOGGER.info(f"[MQTT_UPDATE] device_id={device_id_str}, state={state_data}")
                         self._schedule_refresh()
                     else:
-                        self._schedule_refresh()
+                        _LOGGER.warning(f"[MQTT_ERROR] Failed to parse payload for device {device_id_str}: {mqtt_payload[:200]}")
                 else:
-                    _LOGGER.info(f"[MQTT_OTHER] message_type={message_type}, deviceid={device_id}")
-                    self._schedule_refresh()
+                    _LOGGER.warning(f"[MQTT_ERROR] No device found for devicename={mqtt_devicename}, productkey={mqtt_productkey}")
+            else:
+                _LOGGER.info(f"[MQTT_OTHER] Unknown message format: {data}")
                     
-        except json.JSONDecodeError:
-            _LOGGER.warning(f"[MQTT_ERROR] Failed to parse JSON: {payload[:200]}")
-            self._schedule_refresh()
         except Exception as e:
             _LOGGER.error(f"[MQTT_ERROR] Error processing message: {e}")
+
+    def _find_device_id_by_iot_name(self, iot_device_name, iot_product_key=None):
+        """Find device ID by IoT device name and product key."""
+        for device_id, device in self.devices.items():
+            device_iot_name = device.get("iotdevicename") or device.get("iotDeviceName")
+            device_iot_key = device.get("iotproductkey") or device.get("iotProductKey")
+            
+            if device_iot_name and device_iot_name == iot_device_name:
+                if iot_product_key is None or (device_iot_key and device_iot_key == iot_product_key):
+                    _LOGGER.debug(f"[MQTT_MATCH] Found device {device_id} by iotdevicename={iot_device_name}")
+                    return device_id
+        
+        for device_id, device in self.devices.items():
+            device_name = device.get("devicename") or device.get("deviceName")
+            if device_name and device_name == iot_device_name:
+                _LOGGER.debug(f"[MQTT_MATCH] Found device {device_id} by devicename={iot_device_name}")
+                return device_id
+        
+        return None
+
+    def _parse_mqtt_payload(self, payload):
+        """Parse MQTT payload to device state data."""
+        try:
+            if isinstance(payload, dict):
+                return payload
+            
+            if isinstance(payload, str):
+                try:
+                    return json.loads(payload)
+                except json.JSONDecodeError:
+                    pass
+                
+                if payload.startswith("66BB") or payload.startswith("66bb"):
+                    return self._parse_hex_payload(payload)
+                
+                _LOGGER.debug(f"[MQTT_PARSE] Unrecognized payload format: {payload[:100]}")
+            
+            return None
+        except Exception as e:
+            _LOGGER.error(f"[MQTT_PARSE] Error parsing payload: {e}")
+            return None
+
+    def _parse_hex_payload(self, hex_str):
+        """Parse hex payload (66BB...EB format) to device state."""
+        try:
+            hex_str = hex_str.upper()
+            if not (hex_str.startswith("66BB") and hex_str.endswith("EB")):
+                return None
+            
+            data = hex_str[4:-2]
+            if len(data) < 4:
+                return None
+            
+            status_byte = int(data[0:2], 16)
+            is_on = (status_byte & 0x01) == 0x01
+            
+            state = {"CharSwitch": hex_str}
+            
+            return state
+        except Exception as e:
+            _LOGGER.error(f"[MQTT_PARSE] Error parsing hex payload: {e}")
+            return None
 
     def _schedule_refresh(self):
         try:
