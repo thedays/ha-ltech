@@ -31,6 +31,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         self.mqtt_client = None
         self.mesh_manager = None
         self.mesh_enabled = False
+        self._mqtt_last_disconnect_time = 0
 
     async def _async_update_data(self):
         try:
@@ -158,50 +159,88 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         if not sync_result:
             return
         
+        _LOGGER.info(f"[SYNC_UPDATE] Raw sync_result type={type(sync_result)}, keys={list(sync_result.keys()) if isinstance(sync_result, dict) else 'N/A'}")
+        if isinstance(sync_result, dict):
+            _LOGGER.info(f"[SYNC_UPDATE] sync_result data preview: {str(sync_result)[:500]}")
+        
         try:
             if isinstance(sync_result, dict):
                 rows = sync_result.get("rows", [])
                 if isinstance(rows, list):
                     for device_data in rows:
-                        device_id = device_data.get("deviceId") or device_data.get("deviceid")
-                        if device_id:
-                            device_id_str = str(device_id)
-                            device_state = device_data.get("deviceState", {})
-                            if isinstance(device_state, str):
-                                try:
-                                    device_state = json.loads(device_state)
-                                except (json.JSONDecodeError, TypeError):
-                                    device_state = {}
-                            
-                            if isinstance(device_state, dict):
-                                self.device_states[device_id_str] = device_state
-                                _LOGGER.debug(f"[SYNC_UPDATE] device_id={device_id_str}, state={device_state}")
+                        self._parse_sync_device_data(device_data)
+                else:
+                    self._parse_sync_device_data(sync_result)
             elif isinstance(sync_result, list):
                 for device_data in sync_result:
                     if isinstance(device_data, dict):
-                        device_id = device_data.get("deviceId") or device_data.get("deviceid")
-                        if device_id:
-                            device_id_str = str(device_id)
-                            device_state = device_data.get("deviceState", {})
-                            if isinstance(device_state, str):
-                                try:
-                                    device_state = json.loads(device_state)
-                                except (json.JSONDecodeError, TypeError):
-                                    device_state = {}
-                            
-                            if isinstance(device_state, dict):
-                                self.device_states[device_id_str] = device_state
-                                _LOGGER.debug(f"[SYNC_UPDATE] device_id={device_id_str}, state={device_state}")
+                        self._parse_sync_device_data(device_data)
             
             _LOGGER.info(f"[SYNC_UPDATE] Updated {len(self.device_states)} device states from sync")
         except Exception as e:
             _LOGGER.error(f"[SYNC_UPDATE] Failed to update device states: {e}")
+    
+    def _parse_sync_device_data(self, device_data):
+        """Parse a single device data from sync response."""
+        device_id = device_data.get("deviceId") or device_data.get("deviceid")
+        if not device_id:
+            return
+        
+        device_id_str = str(device_id)
+        device_state = {}
+        
+        device_state_str = device_data.get("deviceState")
+        if device_state_str:
+            if isinstance(device_state_str, str):
+                try:
+                    device_state = json.loads(device_state_str)
+                except (json.JSONDecodeError, TypeError):
+                    device_state = {}
+            elif isinstance(device_state_str, dict):
+                device_state = device_state_str
+        
+        if not device_state:
+            reportinstruct = device_data.get("reportinstruct", "")
+            if reportinstruct:
+                try:
+                    report_data = json.loads(reportinstruct)
+                    if isinstance(report_data, dict):
+                        for key, value in report_data.items():
+                            if key.startswith("Char"):
+                                device_state[key] = value
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
+        if not device_state:
+            maccode = device_data.get("maccode", "")
+            if maccode:
+                try:
+                    maccode_data = json.loads(maccode)
+                    if isinstance(maccode_data, dict):
+                        for key, value in maccode_data.items():
+                            if key.startswith("Char"):
+                                device_state[key] = value
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
+        if device_state:
+            if device_id_str in self.device_states:
+                old_state = self.device_states[device_id_str]
+                if old_state != device_state:
+                    _LOGGER.info(f"[SYNC_UPDATE] device_id={device_id_str} state changed: {old_state} -> {device_state}")
+            self.device_states[device_id_str] = device_state
+            _LOGGER.debug(f"[SYNC_UPDATE] device_id={device_id_str}, state={device_state}")
 
+    def _on_mqtt_disconnect(self):
+        import time
+        self._mqtt_last_disconnect_time = time.time()
+        _LOGGER.info(f"[MQTT_DISCONNECT] Recorded disconnect time: {self._mqtt_last_disconnect_time}")
+    
     def start_mqtt(self):
         if self.mqtt_client:
             self.mqtt_client.disconnect()
 
-        self.mqtt_client = LtechMqttClient(self.api, self._on_mqtt_message, self.hass)
+        self.mqtt_client = LtechMqttClient(self.api, self._on_mqtt_message, self.hass, self._on_mqtt_disconnect)
         connected = self.mqtt_client.connect()
         
         if connected:
@@ -216,7 +255,9 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 first_place = places_list[0]
                 place_id = first_place.get("placeId") or first_place.get("placeid")
                 _LOGGER.info(f"[MQTT_SYNC] Triggering device status sync after MQTT connect, place_id={place_id}")
-                self.api.sync_device_status(place_id)
+                sync_result = self.api.sync_device_status(place_id)
+                self._update_device_states_from_sync(sync_result)
+                _LOGGER.info(f"[MQTT_SYNC] Sync completed, {len(self.device_states)} device states updated")
         else:
             _LOGGER.warning("MQTT client failed to connect, falling back to polling")
         
@@ -260,9 +301,23 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                     state_data = self._parse_mqtt_payload(mqtt_payload)
                     
                     if state_data:
+                        old_state = self.device_states.get(device_id_str)
+                        state_changed = old_state != state_data
+                        
+                        force_refresh = False
+                        if self._mqtt_last_disconnect_time > 0:
+                            import time
+                            if time.time() - self._mqtt_last_disconnect_time < 10:
+                                force_refresh = True
+                                _LOGGER.info(f"[MQTT_UPDATE] Force refresh after reconnection for device {device_id_str}")
+                        
                         self.device_states[device_id_str] = state_data
-                        _LOGGER.info(f"[MQTT_UPDATE] device_id={device_id_str}, state={state_data}")
-                        self._schedule_refresh()
+                        
+                        if state_changed or force_refresh:
+                            _LOGGER.info(f"[MQTT_UPDATE] device_id={device_id_str} state changed: {old_state} -> {state_data}")
+                            self._schedule_refresh()
+                        else:
+                            _LOGGER.debug(f"[MQTT_UPDATE] device_id={device_id_str} state unchanged, skipping refresh")
                     else:
                         _LOGGER.warning(f"[MQTT_ERROR] Failed to parse payload for device {device_id_str}: {mqtt_payload[:200]}")
                 else:
@@ -339,11 +394,39 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             if len(data) < 4:
                 return None
             
+            state = {"CharSwitch": hex_str}
+            
             status_byte = int(data[0:2], 16)
             is_on = (status_byte & 0x01) == 0x01
             
-            state = {"CharSwitch": hex_str}
+            if len(data) >= 8:
+                byte1 = int(data[2:4], 16)
+                byte2 = int(data[4:6], 16)
+                byte3 = int(data[6:8], 16)
+                
+                if byte1 == 0x01:
+                    brightness_value = byte2
+                    if brightness_value > 0:
+                        state["CharBrightness"] = f"66BB00000001{brightness_value:02X}EB"
+                
+                elif byte1 == 0x02:
+                    color_temp_value = (byte2 << 8) | byte3
+                    if color_temp_value > 0:
+                        state["CharTemp"] = f"66BB00000002{color_temp_value:04X}EB"
             
+            if len(data) >= 12:
+                byte4 = int(data[8:10], 16)
+                byte5 = int(data[10:12], 16)
+                
+                if byte4 == 0x01 and "CharBrightness" not in state:
+                    state["CharBrightness"] = f"66BB00000001{byte5:02X}EB"
+                elif byte4 == 0x02 and "CharTemp" not in state:
+                    if len(data) >= 14:
+                        byte6 = int(data[12:14], 16)
+                        color_temp_value = (byte5 << 8) | byte6
+                        state["CharTemp"] = f"66BB00000002{color_temp_value:04X}EB"
+            
+            _LOGGER.debug(f"[MQTT_PARSE] Parsed hex payload: {hex_str[:50]} -> {state}")
             return state
         except Exception as e:
             _LOGGER.error(f"[MQTT_PARSE] Error parsing hex payload: {e}")

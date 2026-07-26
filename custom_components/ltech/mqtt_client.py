@@ -17,9 +17,10 @@ except ImportError as e:
 
 
 class LtechMqttClient:
-    def __init__(self, api_client, on_message_callback=None, hass=None):
+    def __init__(self, api_client, on_message_callback=None, hass=None, on_disconnect_callback=None):
         self.api_client = api_client
         self.on_message_callback = on_message_callback
+        self.on_disconnect_callback = on_disconnect_callback
         self.hass = hass
         self.client = None
         self.connected = False
@@ -147,6 +148,15 @@ class LtechMqttClient:
             _LOGGER.info("[MQTT] Disconnected")
         else:
             _LOGGER.warning(f"[MQTT] Unexpected disconnection with code {rc}")
+        
+        if self.on_disconnect_callback:
+            try:
+                if self.hass:
+                    self.hass.loop.call_soon_threadsafe(self.on_disconnect_callback)
+                else:
+                    self.on_disconnect_callback()
+            except Exception as e:
+                _LOGGER.error(f"[MQTT] Failed to call disconnect callback: {e}")
 
     def _on_message(self, client, userdata, msg):
         try:

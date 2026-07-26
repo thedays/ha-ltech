@@ -82,8 +82,7 @@ class LtechSwitch(LtechEntity, SwitchEntity):
     def unique_id(self):
         return self._attr_unique_id
 
-    @property
-    def is_on(self):
+    def _get_device_state(self):
         device = self.coordinator.get_device(self.device_id)
         if device:
             self.device = device
@@ -91,14 +90,38 @@ class LtechSwitch(LtechEntity, SwitchEntity):
         realtime_state = self.coordinator.get_device_state(self.device_id)
         if realtime_state:
             _LOGGER.debug(f"[SWITCH_STATE] Using realtime state for device_id={self.device_id}: {realtime_state}")
-            device_state = realtime_state
-        else:
-            device_state = self.device.get("deviceState", {})
-            if isinstance(device_state, str):
-                try:
-                    device_state = json.loads(device_state)
-                except (json.JSONDecodeError, TypeError):
-                    device_state = {}
+            return realtime_state
+        
+        device_state = self.device.get("deviceState", {})
+        if isinstance(device_state, str):
+            try:
+                device_state = json.loads(device_state)
+            except (json.JSONDecodeError, TypeError):
+                device_state = {}
+        
+        if isinstance(device_state, dict) and device_state:
+            _LOGGER.debug(f"[SWITCH_STATE] Using deviceState for device_id={self.device_id}: {device_state}")
+            return device_state
+        
+        maccode = self.device.get("maccode", "")
+        if maccode:
+            try:
+                maccode_data = json.loads(maccode)
+                if isinstance(maccode_data, dict):
+                    char_keys = [k for k in maccode_data.keys() if k.startswith("Char")]
+                    if char_keys:
+                        char_state = {k: maccode_data[k] for k in char_keys}
+                        _LOGGER.debug(f"[SWITCH_STATE] Using maccode default for device_id={self.device_id}: {char_state}")
+                        return char_state
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        _LOGGER.debug(f"[SWITCH_STATE] No state available for device_id={self.device_id}, returning empty state")
+        return {}
+    
+    @property
+    def is_on(self):
+        device_state = self._get_device_state()
         
         if not device_state:
             _LOGGER.debug(f"[SWITCH_STATE] No state available for device_id={self.device_id}, returning False (default off)")
