@@ -116,12 +116,21 @@ class LtechApiClient:
         return hashlib.md5(data_str.encode("utf-8")).hexdigest().lower()
 
     def _build_request(self, method, data=None):
-        timestamp = str(int(time.time()))
+        timestamp = str(int(time.time() * 1000))
         
         if data is None:
             data = ""
         else:
-            data = json.dumps(data, separators=(',', ':'))
+            if isinstance(data, list) and all(isinstance(item, tuple) for item in data):
+                data_dict = dict(data)
+                ordered_keys = [k for k, _ in data]
+                ordered_data = []
+                for key in ordered_keys:
+                    if key in data_dict:
+                        ordered_data.append(f'"{key}":{json.dumps(data_dict[key])}')
+                data = "{" + ",".join(ordered_data) + "}"
+            else:
+                data = json.dumps(data, separators=(',', ':'))
         
         encrypted_data = self._aes_encrypt(data, self.secret_key)
         
@@ -141,9 +150,9 @@ class LtechApiClient:
         payload = {
             "method": method,
             "format": "json",
-            "platform_version": "iOS_2.8.0",
+            "platform_version": "Android_2.8.0",
             "data": encrypted_data,
-            "system_model": "iOS 27.0_iPhone17,5",
+            "system_model": "34_Pixel 8 Pro",
             "v": "2.0",
             "session": self.session,
             "timestamp": timestamp,
@@ -163,7 +172,7 @@ class LtechApiClient:
         
         return payload
 
-    def _send_request(self, method, data=None, timeout=60):
+    def _send_request(self, method, data=None, timeout=60, retry_on_auth_error=True):
         url = f"{self.server_url}{REST_URL}"
         payload = self._build_request(method, data)
         
@@ -189,6 +198,10 @@ class LtechApiClient:
             _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
             
             if result.get("ret") == 10:
+                if retry_on_auth_error:
+                    _LOGGER.warning(f"[API_AUTH] Session expired, attempting re-authentication for method={method}")
+                    self.login()
+                    return self._send_request(method, data, timeout, retry_on_auth_error=False)
                 raise LtechAuthError("Session expired, need to re-login")
             
             if result.get("ret") != 0:
@@ -203,15 +216,18 @@ class LtechApiClient:
             raise LtechApiError(f"Request failed: {str(e)}") from e
 
     def login(self):
-        login_data = {
-            "devicetype": "3",
-            "memberid": str(APP_ID_DEFAULT),
-            "loginname": self.email,
-            "devicesn": "",
-            "pwd": self.password,
-        }
+        import uuid
+        push_id = str(uuid.uuid4()).replace("-", "")[:32]
         
-        result = self._send_request(FUN_URL_LOGIN, login_data)
+        login_data = [
+            ("devicesn", push_id),
+            ("devicetype", "3"),
+            ("loginname", self.email),
+            ("memberid", APP_ID_DEFAULT),
+            ("pwd", self.password),
+        ]
+        
+        result = self._send_request(FUN_URL_LOGIN, login_data, retry_on_auth_error=False)
         
         if isinstance(result, dict):
             self.session = result.get("session", self.session)

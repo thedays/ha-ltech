@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import LtechApiError
+from .api import LtechApiError, LtechAuthError
 from .const import DOMAIN, LIGHT_PRODUCT_IDS
 from .coordinator import LtechDataUpdateCoordinator
 from .entity import LtechEntity
@@ -131,6 +131,11 @@ class LtechLight(LtechEntity, LightEntity):
         device_state = self._get_device_state()
         state_value = device_state.get("CharSwitch")
         _LOGGER.debug(f"[LIGHT_STATE] device_id={self.device_id}, device_name={self.device_name}, device_state={device_state}, CharSwitch={state_value}")
+        
+        if "is_on" in device_state:
+            _LOGGER.debug(f"[LIGHT_STATE] Using is_on from reportinstruct: {device_state['is_on']}")
+            return device_state["is_on"]
+        
         if state_value is not None:
             parsed = self._parse_state_value(state_value)
             _LOGGER.debug(f"[LIGHT_STATE] parsed_value={parsed}, is_on={parsed == 1 if parsed is not None else False}")
@@ -162,6 +167,8 @@ class LtechLight(LtechEntity, LightEntity):
             
             await self.coordinator.async_refresh()
         
+        except LtechAuthError as e:
+            _LOGGER.error("Authentication failed when turning on light, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn on light: %s", e)
 
@@ -180,6 +187,8 @@ class LtechLight(LtechEntity, LightEntity):
             
             await self.coordinator.async_refresh()
         
+        except LtechAuthError as e:
+            _LOGGER.error("Authentication failed when turning off light, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn off light: %s", e)
 

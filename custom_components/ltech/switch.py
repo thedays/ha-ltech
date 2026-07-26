@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import LtechApiError
+from .api import LtechApiError, LtechAuthError
 from .const import DOMAIN, SWITCH_PRODUCT_IDS
 from .coordinator import LtechDataUpdateCoordinator
 from .entity import LtechEntity
@@ -114,6 +114,10 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             _LOGGER.debug(f"[SWITCH_STATE] No state available for device_id={self.device_id}, returning False (default off)")
             return False
         
+        if "is_on" in device_state:
+            _LOGGER.debug(f"[SWITCH_STATE] Using is_on from reportinstruct: {device_state['is_on']}")
+            return device_state["is_on"]
+        
         if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
             zone_key = f"zone{self._zone_index}"
             zone_state = device_state.get(zone_key, {})
@@ -166,6 +170,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             self._is_on = True
             self.async_write_ha_state()
 
+        except LtechAuthError as e:
+            _LOGGER.error("Authentication failed when turning on switch, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn on switch: %s", e)
 
@@ -199,6 +205,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             self._is_on = False
             self.async_write_ha_state()
 
+        except LtechAuthError as e:
+            _LOGGER.error("Authentication failed when turning off switch, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn off switch: %s", e)
 

@@ -91,6 +91,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                                 device_state = device.get("deviceState", "NOT_FOUND")
                                 _LOGGER.debug(f"[DEVICE_STATE] device_id={device_id}, device_name={device_name}, deviceState={device_state[:100] if isinstance(device_state, str) else type(device_state)}")
                                 self.devices[device_id] = device
+                                self._parse_sync_device_data(device)
                                 if device_name in device_name_counts:
                                     device_name_counts[device_name] += 1
                                 else:
@@ -229,6 +230,17 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                             if key.startswith("Char"):
                                 device_state[key] = value
                 except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            if not device_state and isinstance(reportinstruct, str) and len(reportinstruct) >= 14:
+                ri_hex = reportinstruct.upper()
+                try:
+                    status_byte_str = ri_hex[12:14]
+                    status_byte = int(status_byte_str, 16)
+                    is_on = status_byte == 0x01
+                    device_state["is_on"] = is_on
+                    _LOGGER.debug(f"[REPORTINSTRUCT_PARSE] device_id={device_id_str}, reportinstruct={ri_hex}, status_byte=0x{status_byte_str}, is_on={is_on}")
+                except ValueError:
                     pass
         
         if not device_state:
