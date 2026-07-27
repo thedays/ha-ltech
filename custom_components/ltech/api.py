@@ -234,7 +234,7 @@ class LtechApiClient:
                         _LOGGER.error(f"[API_ERROR] Request that failed: data={data}, session={self.session}, secret_key={self.secret_key}")
                         raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')} (ret={result.get('ret')})")
                     
-                    return result.get("data", result.get("message"))
+                    return result
                 
                 finally:
                     try:
@@ -270,9 +270,10 @@ class LtechApiClient:
         result = self._send_request(FUN_URL_LOGIN, login_data, retry_on_auth_error=False)
         
         if isinstance(result, dict):
-            self.session = result.get("session", self.session)
-            self.user_id = result.get("userid")
-            new_secret_key = result.get("secretkey")
+            data = result.get("data", result)
+            self.session = data.get("session", self.session)
+            self.user_id = data.get("userid")
+            new_secret_key = data.get("secretkey")
             if new_secret_key:
                 _LOGGER.info(f"[LOGIN] Updated secret_key: {new_secret_key[:10]}...")
                 self.secret_key = new_secret_key
@@ -290,7 +291,8 @@ class LtechApiClient:
         result = self._send_request(FUN_URL_PLACE_INFO, data)
         
         if isinstance(result, dict):
-            info = result.get("info", {})
+            data = result.get("data", result)
+            info = data.get("info", {})
             if isinstance(info, dict):
                 self.mesh_net_key = info.get("netkey")
                 self.mesh_app_key = info.get("applicationkey")
@@ -335,10 +337,12 @@ class LtechApiClient:
         else:
             result = self.request_device_control([device_id], None, action)
         
-        if result and result.get("ret") == 0:
+        if isinstance(result, dict) and result.get("ret") == 0:
             _LOGGER.info(f"[CONTROL_DEVICE] Got control permission for device {device_id}, action={action}")
-        else:
+        elif result is not None:
             _LOGGER.warning(f"[CONTROL_DEVICE] Failed to get control permission for device {device_id}: {result}")
+        else:
+            _LOGGER.warning(f"[CONTROL_DEVICE] Failed to get control permission for device {device_id}: None")
         
         return result
 
@@ -401,18 +405,19 @@ class LtechApiClient:
         _LOGGER.info(f"[BIND_USER] Result: {result}")
         
         if result and isinstance(result, dict):
-            if 'param' in result:
+            data = result.get("data", result)
+            if 'param' in data:
                 try:
-                    param = json.loads(result['param'])
+                    param = json.loads(data['param'])
                     self.product_key = param.get('productKey')
                     self.device_name = param.get('deviceName')
                     self.device_secret = param.get('deviceSecret')
                     _LOGGER.info(f"[BIND_USER] Parsed credentials: product_key={self.product_key}, device_name={self.device_name}, device_secret={self.device_secret[:10]}..." if self.device_secret else None)
                     return param
                 except json.JSONDecodeError as e:
-                    _LOGGER.error(f"[BIND_USER] Failed to parse param JSON: {e}, param={result['param']}")
+                    _LOGGER.error(f"[BIND_USER] Failed to parse param JSON: {e}, param={data['param']}")
             else:
-                _LOGGER.error(f"[BIND_USER] No 'param' field in result")
+                _LOGGER.error(f"[BIND_USER] No 'param' field in result data")
         else:
             _LOGGER.error(f"[BIND_USER] Invalid result: {result}")
         

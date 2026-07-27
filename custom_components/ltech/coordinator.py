@@ -46,8 +46,12 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                     raise
             
             places_list = []
-            if isinstance(self.places, dict) and "rows" in self.places:
-                places_list = self.places["rows"]
+            if isinstance(self.places, dict):
+                places_data = self.places.get("data", self.places)
+                if "rows" in places_data:
+                    places_list = places_data["rows"]
+                elif isinstance(places_data, list):
+                    places_list = places_data
             elif isinstance(self.places, list):
                 places_list = self.places
             
@@ -75,10 +79,11 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 except LtechApiError as e:
                     _LOGGER.error(f"[UPDATE_DATA] Failed to sync device status: {e}")
                 
-                if isinstance(device_list, dict) and "rows" in device_list:
+                device_data = device_list.get("data", device_list) if isinstance(device_list, dict) else {}
+                if isinstance(device_data, dict) and "rows" in device_data:
                     self.devices = {}
                     device_name_counts = {}
-                    for device in device_list["rows"]:
+                    for device in device_data["rows"]:
                         device_id = device.get("deviceId") or device.get("deviceid")
                         device_id = str(device_id) if device_id else None
                         product_id = device.get("productId") or device.get("productid", "")
@@ -186,7 +191,8 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         
         try:
             if isinstance(sync_result, dict):
-                rows = sync_result.get("rows", [])
+                data = sync_result.get("data", sync_result)
+                rows = data.get("rows", [])
                 if isinstance(rows, list):
                     for device_data in rows:
                         self._parse_sync_device_data(device_data)
@@ -294,8 +300,12 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         
         if connected:
             places_list = []
-            if isinstance(self.places, dict) and "rows" in self.places:
-                places_list = self.places["rows"]
+            if isinstance(self.places, dict):
+                places_data = self.places.get("data", self.places)
+                if "rows" in places_data:
+                    places_list = places_data["rows"]
+                elif isinstance(places_data, list):
+                    places_list = places_data
             elif isinstance(self.places, list):
                 places_list = self.places
             
