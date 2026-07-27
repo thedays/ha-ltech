@@ -32,7 +32,8 @@ async def async_setup_entry(
         if zone_count > 1:
             _LOGGER.info(f"Device '{device_name}' has {zone_count} zones, creating {zone_count} switch entities")
             for zone_index in range(1, zone_count + 1):
-                entities.append(LtechSwitch(coordinator, device, zone_index, zone_count))
+                zone_name = _get_zone_name(device, zone_index)
+                entities.append(LtechSwitch(coordinator, device, zone_index, zone_count, zone_name))
         else:
             entities.append(LtechSwitch(coordinator, device))
 
@@ -60,15 +61,42 @@ def _get_zone_count(device):
 
     return 1
 
+def _get_zone_name(device, zone_index):
+    """Get zone name from paramext field."""
+    paramext = device.get("paramext", "{}")
+    if not paramext:
+        return None
+
+    try:
+        if isinstance(paramext, str):
+            param_data = json.loads(paramext)
+        else:
+            param_data = paramext
+
+        zone_key = f"zone{zone_index}"
+        zone_data = param_data.get(zone_key, {})
+        if isinstance(zone_data, dict):
+            zone_name = zone_data.get("name", "")
+            if zone_name:
+                return zone_name
+    except (json.JSONDecodeError, TypeError) as e:
+        _LOGGER.debug(f"Failed to parse paramext for zone name: {e}")
+
+    return None
+
 
 class LtechSwitch(LtechEntity, SwitchEntity):
-    def __init__(self, coordinator, device, zone_index=None, zone_count=None):
+    def __init__(self, coordinator, device, zone_index=None, zone_count=None, zone_name=None):
         super().__init__(coordinator, device)
         self._zone_index = zone_index
         self._zone_count = zone_count
+        self._zone_name = zone_name
 
         if zone_index is not None and zone_count is not None and zone_count > 1:
-            self._attr_name = f"{self.device_name} Zone {zone_index}"
+            if zone_name:
+                self._attr_name = f"{self.device_name} {zone_name}"
+            else:
+                self._attr_name = f"{self.device_name} Zone {zone_index}"
             self._attr_unique_id = f"{DOMAIN}_{self.device_id}_zone_{zone_index}"
         else:
             self._attr_name = self.device_name
@@ -102,6 +130,35 @@ class LtechSwitch(LtechEntity, SwitchEntity):
         if isinstance(device_state, dict) and device_state:
             _LOGGER.debug(f"[SWITCH_STATE] Using deviceState for device_id={self.device_id}: {device_state}")
             return device_state
+        
+        reportinstruct = self.device.get("reportinstruct", "")
+        if reportinstruct and isinstance(reportinstruct, str) and len(reportinstruct) >= 14:
+            try:
+                ri_hex = reportinstruct.upper()
+                status_byte_str = ri_hex[12:14]
+                status_byte = int(status_byte_str, 16)
+                
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    is_on = bool(status_byte & (1 << (self._zone_index - 1)))
+                    _LOGGER.debug(f"[SWITCH_STATE] Parsed reportinstruct for zone {self._zone_index}: status_byte=0x{status_byte_str}, is_on={is_on}")
+                    return {"is_on": is_on}
+                else:
+                    is_on = (status_byte & 0x01) == 0x01
+                    _LOGGER.debug(f"[SWITCH_STATE] Parsed reportinstruct: status_byte=0x{status_byte_str}, is_on={is_on}")
+                    return {"is_on": is_on}
+            except (ValueError, TypeError) as e:
+                _LOGGER.debug(f"[SWITCH_STATE] Failed to parse reportinstruct: {e}")
+        
+        maccode = self.device.get("maccode", "")
+        if maccode:
+            try:
+                maccode_data = json.loads(maccode)
+                if isinstance(maccode_data, dict):
+                    char_switch = maccode_data.get("CharSwitch")
+                    if char_switch:
+                        return {"CharSwitch": char_switch}
+            except (json.JSONDecodeError, TypeError):
+                pass
         
         _LOGGER.debug(f"[SWITCH_STATE] No reliable state available for device_id={self.device_id}, returning empty state (default off)")
         return {}
