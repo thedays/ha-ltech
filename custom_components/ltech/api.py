@@ -58,14 +58,6 @@ class LtechApiClient:
         self.mesh_app_key = None
         self.mesh_uuid = None
         self.mqtt_broker = MQTT_BROKER_CN
-        
-        self._ssl_context = ssl.create_default_context()
-        self._ssl_context.check_hostname = False
-        self._ssl_context.verify_mode = ssl.CERT_NONE
-        self._ssl_context.options &= ~ssl.OP_NO_TLSv1_2
-        self._ssl_context.options &= ~ssl.OP_NO_TLSv1_3
-        self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        self._ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
