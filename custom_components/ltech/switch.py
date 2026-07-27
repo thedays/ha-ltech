@@ -385,4 +385,5 @@ class LtechSwitch(LtechEntity, SwitchEntity):
     def _build_zone_control_data(self, zone_index, on):
         """Build control data for multi-zone switch."""
         status_value = 1 if on else 0
-        return f"66BB27C000002A002200090ED8010000000018001400180040010004015A00AD0204030605040018031C00{status_value:02X}EB"
+        zone_hex = f"{zone_index:02X}"
+        return f"66BB00000000{zone_hex}{status_value:02X}EB"

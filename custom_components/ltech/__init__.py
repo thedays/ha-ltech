@@ -43,8 +43,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"[SETUP] Places loaded: {len(coordinator.places) if isinstance(coordinator.places, list) else 'dict'}")
     
     places_list = []
-    if isinstance(coordinator.places, dict) and "rows" in coordinator.places:
-        places_list = coordinator.places["rows"]
+    if isinstance(coordinator.places, dict):
+        places_data = coordinator.places.get("data", coordinator.places)
+        if "rows" in places_data:
+            places_list = places_data["rows"]
+        elif isinstance(places_data, list):
+            places_list = places_data
     elif isinstance(coordinator.places, list):
         places_list = coordinator.places
     
