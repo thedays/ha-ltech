@@ -174,20 +174,17 @@ class LtechLight(LtechEntity, LightEntity):
                 
                 mqtt_success = False
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
-                    action = {}
-                    action["CharSwitch"] = "66BB0000000001EB"
+                    mqtt_data = {
+                        "deviceid": int(self.device_id),
+                        "CharSwitch": "66BB0000000001EB"
+                    }
                     if brightness is not None:
                         brightness_hex = f"{int((brightness / 255) * 100):02X}"
-                        action["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
+                        mqtt_data["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
                     if color_temp_kelvin is not None:
                         color_temp_mired = 1000000 // color_temp_kelvin
                         temp_hex = f"{color_temp_mired:04X}"
-                        action["CharTemp"] = f"66BB00000002{temp_hex}EB"
-                    
-                    mqtt_data = {
-                        "deviceid": int(self.device_id),
-                        "action": action
-                    }
+                        mqtt_data["CharTemp"] = f"66BB00000002{temp_hex}EB"
                     if platform_device_id:
                         mqtt_data["platformdeviceid"] = platform_device_id
                     
@@ -236,10 +233,9 @@ class LtechLight(LtechEntity, LightEntity):
                 
                 mqtt_success = False
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
-                    action = {"CharSwitch": "66BB0000000000EB"}
                     mqtt_data = {
                         "deviceid": int(self.device_id),
-                        "action": action
+                        "CharSwitch": "66BB0000000000EB"
                     }
                     if platform_device_id:
                         mqtt_data["platformdeviceid"] = platform_device_id

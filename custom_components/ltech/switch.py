@@ -212,21 +212,49 @@ class LtechSwitch(LtechEntity, SwitchEntity):
                     mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
             
             if not mesh_success:
-                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
-                    await self.hass.async_add_executor_job(
-                        self.coordinator.api.control_switch_zone,
+                try:
+                    if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                        await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_switch_zone,
+                            self.device_id,
+                            self._zone_index,
+                            True,
+                            platform_device_id,
+                        )
+                    else:
+                        await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_switch,
+                            self.device_id,
+                            True,
+                            platform_device_id,
+                        )
+                except Exception as api_error:
+                    _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
+                
+                mqtt_success = False
+                if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
+                    if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                        zone_hex = f"{self._zone_index:02X}"
+                        char_switch = f"66BB00000000{zone_hex}01EB"
+                    else:
+                        char_switch = "66BB0000000001EB"
+                    
+                    mqtt_data = {
+                        "deviceid": int(self.device_id),
+                        "CharSwitch": char_switch
+                    }
+                    if platform_device_id:
+                        mqtt_data["platformdeviceid"] = platform_device_id
+                    
+                    mqtt_payload = json.dumps(mqtt_data)
+                    mqtt_success = await self.hass.async_add_executor_job(
+                        self.coordinator.control_device_via_mqtt,
                         self.device_id,
-                        self._zone_index,
-                        True,
-                        platform_device_id,
+                        mqtt_payload
                     )
+                    _LOGGER.info(f"[MQTT_CONTROL] Switch {self.device_id} MQTT control on: {mqtt_success}, payload: {mqtt_payload}")
                 else:
-                    await self.hass.async_add_executor_job(
-                        self.coordinator.api.control_switch,
-                        self.device_id,
-                        True,
-                        platform_device_id,
-                    )
+                    _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
 
             self._is_on = True
             self.async_write_ha_state()
@@ -251,21 +279,49 @@ class LtechSwitch(LtechEntity, SwitchEntity):
                     mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
             
             if not mesh_success:
-                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
-                    await self.hass.async_add_executor_job(
-                        self.coordinator.api.control_switch_zone,
+                try:
+                    if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                        await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_switch_zone,
+                            self.device_id,
+                            self._zone_index,
+                            False,
+                            platform_device_id,
+                        )
+                    else:
+                        await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_switch,
+                            self.device_id,
+                            False,
+                            platform_device_id,
+                        )
+                except Exception as api_error:
+                    _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
+                
+                mqtt_success = False
+                if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
+                    if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                        zone_hex = f"{self._zone_index:02X}"
+                        char_switch = f"66BB00000000{zone_hex}00EB"
+                    else:
+                        char_switch = "66BB0000000000EB"
+                    
+                    mqtt_data = {
+                        "deviceid": int(self.device_id),
+                        "CharSwitch": char_switch
+                    }
+                    if platform_device_id:
+                        mqtt_data["platformdeviceid"] = platform_device_id
+                    
+                    mqtt_payload = json.dumps(mqtt_data)
+                    mqtt_success = await self.hass.async_add_executor_job(
+                        self.coordinator.control_device_via_mqtt,
                         self.device_id,
-                        self._zone_index,
-                        False,
-                        platform_device_id,
+                        mqtt_payload
                     )
+                    _LOGGER.info(f"[MQTT_CONTROL] Switch {self.device_id} MQTT control off: {mqtt_success}, payload: {mqtt_payload}")
                 else:
-                    await self.hass.async_add_executor_job(
-                        self.coordinator.api.control_switch,
-                        self.device_id,
-                        False,
-                        platform_device_id,
-                    )
+                    _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
 
             self._is_on = False
             self.async_write_ha_state()

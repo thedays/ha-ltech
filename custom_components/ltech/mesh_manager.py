@@ -433,15 +433,15 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
-            opcode = 0x82 if on else 0x81
-            parameters = bytes([0x01 if on else 0x00])
-            vendor_payload = build_vendor_model_message(opcode, parameters)
+            control_data = "66BB0000000001EB" if on else "66BB0000000000EB"
+            parameters = hex_to_bytes(control_data)
+            vendor_payload = build_vendor_model_message(0x01, parameters)
             access_pdu = build_access_message(address, APP_KEY_INDEX, vendor_payload)
 
             result = await self._build_and_send_network_pdu(address, access_pdu)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) to {'ON' if on else 'OFF'}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) to {'ON' if on else 'OFF'}, data={control_data}")
             return result
             
         except Exception as e:
@@ -459,14 +459,14 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
-            level = int((brightness / 255) * 65535)
-            level_bytes = struct.pack("<h", level)
-            parameters = level_bytes + bytes([0x00, 0x00])
+            brightness_percent = int((brightness / 255) * 100)
+            control_data = f"66BB00000001{brightness_percent:02X}EB"
+            parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x03, parameters, acknowledged=True)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) brightness to {brightness}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) brightness to {brightness}, data={control_data}")
             return result
             
         except Exception as e:
@@ -484,12 +484,13 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
-            parameters = struct.pack("<H", color_temp)
+            control_data = f"66BB00000002{color_temp:04X}EB"
+            parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x04, parameters, acknowledged=True)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) color temp to {color_temp}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) color temp to {color_temp}, data={control_data}")
             return result
             
         except Exception as e:
