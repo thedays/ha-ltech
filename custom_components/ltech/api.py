@@ -163,12 +163,10 @@ class LtechApiClient:
                 try:
                     sock.connect(("apic.ltsys.com.cn", 2443))
                     
-                    ssl_sock = ssl.wrap_socket(
-                        sock,
-                        ssl_version=ssl.PROTOCOL_TLSv1_2,
-                        cert_reqs=ssl.CERT_NONE,
-                        check_hostname=False
-                    )
+                    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    ssl_sock = ssl_context.wrap_socket(sock)
                     
                     request_line = f"POST /openapi/rest HTTP/1.1\r\n"
                     headers_str = "\r\n".join(f"{k}: {v}" for k, v in headers.items())
@@ -198,6 +196,24 @@ class LtechApiClient:
                         body_str = response_str[body_start:]
                     else:
                         body_str = response_str
+                    
+                    if "Transfer-Encoding: chunked" in response_str:
+                        lines = body_str.split('\r\n')
+                        json_lines = []
+                        i = 0
+                        while i < len(lines):
+                            if lines[i] == '0' or lines[i] == '':
+                                i += 1
+                                continue
+                            try:
+                                int(lines[i], 16)
+                                i += 1
+                                if i < len(lines):
+                                    json_lines.append(lines[i])
+                            except ValueError:
+                                json_lines.append(lines[i])
+                            i += 1
+                        body_str = '\n'.join(json_lines)
                     
                     result = json.loads(body_str)
                     
