@@ -62,16 +62,10 @@ class LtechApiClient:
         self._ssl_context = ssl.create_default_context()
         self._ssl_context.check_hostname = False
         self._ssl_context.verify_mode = ssl.CERT_NONE
+        self._ssl_context.options &= ~ssl.OP_NO_TLSv1_2
+        self._ssl_context.options &= ~ssl.OP_NO_TLSv1_3
         self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         self._ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
-        self._ssl_context.options |= ssl.OP_NO_SSLv2
-        self._ssl_context.options |= ssl.OP_NO_SSLv3
-        self._ssl_context.options |= ssl.OP_NO_TLSv1
-        self._ssl_context.options |= ssl.OP_NO_TLSv1_1
-        try:
-            self._ssl_context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20')
-        except Exception as e:
-            _LOGGER.debug(f"Failed to set custom ciphers: {e}")
 
     def _aes_encrypt(self, data, key):
         key_bytes = key.encode("utf-8")
@@ -148,9 +142,11 @@ class LtechApiClient:
         payload_str = json.dumps(payload, separators=(',', ':'))
         
         headers = {
+            "Host": "apic.ltsys.com.cn",
             "Content-Type": "application/json",
             "User-Agent": "SmartHome/3 CFNetwork/3890.100.1 Darwin/27.0.0",
             "Content-Length": str(len(payload_str)),
+            "Connection": "close",
         }
         
         max_retries = 3
@@ -160,33 +156,72 @@ class LtechApiClient:
                 _LOGGER.debug(f"[API_REQUEST] full_payload={payload_str}")
                 _LOGGER.debug(f"[API_REQUEST] headers={headers}")
                 
-                conn = http.client.HTTPSConnection("apic.ltsys.com.cn", port=2443, context=self._ssl_context, timeout=timeout)
-                conn.request("POST", "/openapi/rest", body=payload_str, headers=headers)
-                response = conn.getresponse()
-                response_data = response.read().decode("utf-8")
-                conn.close()
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
                 
-                _LOGGER.debug(f"[API_RESPONSE] status_code={response.status}")
-                _LOGGER.debug(f"[API_RESPONSE] headers={dict(response.getheaders())}")
-                _LOGGER.debug(f"[API_RESPONSE] text={response_data}")
+                try:
+                    sock.connect(("apic.ltsys.com.cn", 2443))
+                    
+                    ssl_sock = ssl.wrap_socket(
+                        sock,
+                        ssl_version=ssl.PROTOCOL_TLSv1_2,
+                        cert_reqs=ssl.CERT_NONE,
+                        check_hostname=False
+                    )
+                    
+                    request_line = f"POST /openapi/rest HTTP/1.1\r\n"
+                    headers_str = "\r\n".join(f"{k}: {v}" for k, v in headers.items())
+                    request = f"{request_line}{headers_str}\r\n\r\n{payload_str}"
+                    
+                    ssl_sock.sendall(request.encode("utf-8"))
+                    
+                    response_data = ssl_sock.recv(8192)
+                    while True:
+                        try:
+                            chunk = ssl_sock.recv(8192)
+                            if not chunk:
+                                break
+                            response_data += chunk
+                        except ssl.SSLWantReadError:
+                            break
+                        except Exception:
+                            break
+                    
+                    ssl_sock.close()
+                    
+                    response_str = response_data.decode("utf-8")
+                    _LOGGER.debug(f"[API_RESPONSE] full_response={response_str[:500]}")
+                    
+                    if "\r\n\r\n" in response_str:
+                        body_start = response_str.find("\r\n\r\n") + 4
+                        body_str = response_str[body_start:]
+                    else:
+                        body_str = response_str
+                    
+                    result = json.loads(body_str)
+                    
+                    _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
+                    
+                    if result.get("ret") == 10:
+                        if retry_on_auth_error:
+                            _LOGGER.warning(f"[API_AUTH] Session expired, attempting re-authentication for method={method}")
+                            self.login()
+                            return self._send_request(method, data, timeout, retry_on_auth_error=False)
+                        raise LtechAuthError("Session expired, need to re-login")
+                    
+                    if result.get("ret") != 0:
+                        _LOGGER.error(f"[API_ERROR] method={method}, ret={result.get('ret')}, msg={result.get('msg', '')}")
+                        _LOGGER.error(f"[API_ERROR] Request that failed: data={data}, session={self.session}, secret_key={self.secret_key}")
+                        raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')} (ret={result.get('ret')})")
+                    
+                    return result.get("data", result.get("message"))
                 
-                result = json.loads(response_data)
-                
-                _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
-                
-                if result.get("ret") == 10:
-                    if retry_on_auth_error:
-                        _LOGGER.warning(f"[API_AUTH] Session expired, attempting re-authentication for method={method}")
-                        self.login()
-                        return self._send_request(method, data, timeout, retry_on_auth_error=False)
-                    raise LtechAuthError("Session expired, need to re-login")
-                
-                if result.get("ret") != 0:
-                    _LOGGER.error(f"[API_ERROR] method={method}, ret={result.get('ret')}, msg={result.get('msg', '')}")
-                    _LOGGER.error(f"[API_ERROR] Request that failed: data={data}, session={self.session}, secret_key={self.secret_key}")
-                    raise LtechApiError(f"API error: {result.get('msg', 'Unknown error')} (ret={result.get('ret')})")
-                
-                return result.get("data", result.get("message"))
+                finally:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
             
             except ssl.SSLError as e:
                 _LOGGER.warning(f"[API_SSL_ERROR] method={method}, attempt={attempt+1}/{max_retries}, error={str(e)}")
