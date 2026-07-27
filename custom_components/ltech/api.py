@@ -215,6 +215,17 @@ class LtechApiClient:
                             i += 1
                         body_str = '\n'.join(json_lines)
                     
+                    body_str = body_str.replace('\x00', '').replace('\x01', '').replace('\x02', '').replace('\x03', '')
+                    body_str = body_str.replace('\x04', '').replace('\x05', '').replace('\x06', '').replace('\x07', '')
+                    body_str = body_str.replace('\x08', '').replace('\x0b', '').replace('\x0c', '').replace('\x0e', '')
+                    body_str = body_str.replace('\x0f', '').replace('\x10', '').replace('\x11', '').replace('\x12', '')
+                    body_str = body_str.replace('\x13', '').replace('\x14', '').replace('\x15', '').replace('\x16', '')
+                    body_str = body_str.replace('\x17', '').replace('\x18', '').replace('\x19', '').replace('\x1a', '')
+                    body_str = body_str.replace('\x1b', '').replace('\x1c', '').replace('\x1d', '').replace('\x1e', '')
+                    body_str = body_str.replace('\x1f', '')
+                    
+                    _LOGGER.debug(f"[API_RESPONSE] cleaned_body_length={len(body_str)}, first_100_chars={body_str[:100]}")
+                    
                     result = json.loads(body_str)
                     
                     _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
