@@ -309,7 +309,7 @@ class LtechApiClient:
         _LOGGER.info(f"[GET_DEVICE_LIST] placeid={place_id}, type={type(place_id)}")
         return self._send_request(FUN_URL_DEVICE_LIST, data, timeout=120)
 
-    def request_device_control(self, device_ids, platform_device_ids=None):
+    def request_device_control(self, device_ids, platform_device_ids=None, action=None):
         deviceid_objs = [{"deviceid": d} for d in device_ids]
         
         platformdeviceid_objs = None
@@ -319,6 +319,9 @@ class LtechApiClient:
         data = {"deviceids": deviceid_objs}
         if platformdeviceid_objs:
             data["platformdeviceids"] = platformdeviceid_objs
+        if action:
+            data["actions"] = [action]
+            _LOGGER.info(f"[REQUEST_CONTROL] Adding action to request: {action}")
         return self._send_request(FUN_URL_DEVICE_REQUEST_CONTROL, data)
 
     def get_device_online_status(self, device_ids):
@@ -328,9 +331,14 @@ class LtechApiClient:
     def control_device(self, device_id, action, platform_device_id=None):
         if platform_device_id:
             platform_device_ids = [platform_device_id]
-            result = self.request_device_control([device_id], platform_device_ids)
+            result = self.request_device_control([device_id], platform_device_ids, action)
         else:
-            result = self.request_device_control([device_id])
+            result = self.request_device_control([device_id], None, action)
+        
+        if result and result.get("ret") == 0:
+            _LOGGER.info(f"[CONTROL_DEVICE] Got control permission for device {device_id}, action={action}")
+        else:
+            _LOGGER.warning(f"[CONTROL_DEVICE] Failed to get control permission for device {device_id}: {result}")
         
         return result
 
