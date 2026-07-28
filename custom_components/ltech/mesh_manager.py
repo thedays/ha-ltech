@@ -9,9 +9,14 @@ from bleak import BleakClient, BleakScanner, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 
 from .mesh_crypto import (
-    k1, k2, k3, k4, aes_ccm_encrypt, aes_ccm_decrypt,
-    generate_nonce, build_access_message, build_vendor_model_message,
-    build_proxy_pdu, parse_proxy_pdu, segment_network_pdu, hex_to_bytes
+    k1, k4,
+    decrypt_network_pdu, decrypt_upper_transport,
+    encrypt_upper_transport,
+    build_network_pdu, build_access_message, build_vendor_model_message,
+    parse_vendor_model_message,
+    build_proxy_pdu, parse_proxy_pdu, segment_network_pdu,
+    hex_to_bytes,
+    LEITE_COMPANY_ID, LEITE_VENDOR_MODEL_ID
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,14 +29,12 @@ MESH_PROXY_SERVICE_UUID = "00001828-0000-1000-8000-00805f9b34fb"
 MESH_PROXY_DATA_IN_UUID = "00002add-0000-1000-8000-00805f9b34fb"
 MESH_PROXY_DATA_OUT_UUID = "00002ade-0000-1000-8000-00805f9b34fb"
 
-LEITE_COMPANY_ID = 0x1121
-LEITE_VENDOR_MODEL_ID = 0x11111111
-
 NET_KEY_INDEX = 0
 APP_KEY_INDEX = 0
 
 DEFAULT_MTU = 517
 RECONNECT_INTERVAL = 30
+DEFAULT_TTL = 8
 
 
 class LtechMeshManager:
@@ -52,6 +55,9 @@ class LtechMeshManager:
         self._reconnect_interval = RECONNECT_INTERVAL
         
         self.device_addresses: Dict[str, int] = {}
+        self.address_to_device: Dict[int, str] = {}
+        self.device_keys: Dict[int, bytes] = {}
+        self.address_to_device_key: Dict[int, bytes] = {}
         self.mtu = DEFAULT_MTU
         
         self.iv_index = 0
@@ -61,7 +67,7 @@ class LtechMeshManager:
         self._nid = None
         self._encryption_key = None
         self._privacy_key = None
-        self._transmit_key = None
+        self._app_aid = None
         
         self._sar_buffer = {}
         self._sar_timeout = 5.0
@@ -78,12 +84,33 @@ class LtechMeshManager:
     def _derive_keys(self):
         if self.net_key:
             self._nid, self._encryption_key, self._privacy_key = k1(self.net_key, NET_KEY_INDEX)
+            _LOGGER.info(f"[MESH] Derived keys: NID=0x{self._nid:02X}")
         
         if self.app_key:
-            self._transmit_key = k4(self.app_key)
+            self._app_aid = k4(self.app_key)
+            _LOGGER.info(f"[MESH] Derived App AID: 0x{self._app_aid:02X} ({self._app_aid})")
 
     def set_device_addresses(self, addresses: Dict[str, int]):
         self.device_addresses = addresses
+        self.address_to_device = {addr: dev_id for dev_id, addr in addresses.items()}
+    
+    def set_device_keys(self, device_keys_map: Dict[str, str]):
+        for dev_id, key_hex in device_keys_map.items():
+            try:
+                key_bytes = hex_to_bytes(key_hex)
+                address = self.device_addresses.get(dev_id)
+                if address is not None:
+                    self.device_keys[address] = key_bytes
+                    self.address_to_device_key[address] = key_bytes
+                    _LOGGER.info(f"[MESH] Set device key for {dev_id} (addr=0x{address:04X}): {key_hex[:8]}...")
+            except Exception as e:
+                _LOGGER.warning(f"[MESH] Failed to set device key for {dev_id}: {e}")
+    
+    def get_device_key_by_address(self, address: int) -> Optional[bytes]:
+        return self.address_to_device_key.get(address)
+    
+    def get_device_by_address(self, address: int) -> Optional[str]:
+        return self.address_to_device.get(address)
 
     def set_message_callback(self, callback: Callable[[Dict[str, Any]], None]):
         self._message_callback = callback
@@ -240,103 +267,221 @@ class LtechMeshManager:
         return None
 
     def _parse_network_pdu(self, network_pdu):
+        if not self._encryption_key or not self._privacy_key:
+            _LOGGER.debug("[MESH] Keys not derived, cannot decrypt")
+            return None
+        
         if len(network_pdu) < 12:
-            _LOGGER.debug(f"[MESH] Network PDU too short: {network_pdu.hex()}")
+            _LOGGER.debug(f"[MESH] Network PDU too short: {len(network_pdu)} bytes")
             return None
         
-        nid = network_pdu[0]
-        if nid != self._nid:
-            _LOGGER.debug(f"[MESH] NID mismatch: expected {self._nid.hex()}, got {nid:02X}")
+        first_byte = network_pdu[0]
+        nid = first_byte & 0x7F
+        expected_nid = self._nid
+        if expected_nid and nid != expected_nid:
+            _LOGGER.debug(f"[MESH] NID mismatch: expected 0x{expected_nid:02X}, got 0x{nid:02X}")
             return None
         
-        iv_index = struct.unpack("<I", network_pdu[1:5])[0]
-        seq_number = int.from_bytes(network_pdu[5:11], "little")
-        source = struct.unpack("<H", network_pdu[11:13])[0]
+        cleartext, info = decrypt_network_pdu(
+            network_pdu, self._encryption_key, self._privacy_key, self.iv_index
+        )
         
-        encrypted_data = network_pdu[13:]
-        
-        nonce = generate_nonce(iv_index, seq_number, source)
-        auth_data = bytes([nid]) + network_pdu[1:13]
-        
-        plaintext = aes_ccm_decrypt(self._encryption_key, nonce, encrypted_data, auth_data)
-        
-        if plaintext is None:
-            _LOGGER.debug(f"[MESH] Decryption failed")
+        if cleartext is None:
+            _LOGGER.debug(f"[MESH] Network decryption failed: {info}")
             return None
         
-        return self._parse_access_pdu(plaintext)
-
-    def _parse_access_pdu(self, access_pdu):
-        if len(access_pdu) < 4:
-            return None
+        dst = struct.unpack(">H", cleartext[:2])[0]
+        transport_pdu = cleartext[2:]
         
-        opcode = access_pdu[0]
-        params = access_pdu[1:]
+        _LOGGER.debug(f"[MESH] Network decrypted: DST=0x{dst:04X}, TransportPDU={transport_pdu.hex()}")
         
-        message = {"opcode": opcode, "raw": access_pdu.hex()}
+        result = {
+            "ctl": info["ctl"], "ttl": info["ttl"],
+            "seq": info["seq"], "src": info["src"],
+            "dst": dst
+        }
         
-        if opcode == 0x80:
-            message["type"] = "generic_onoff_status"
-            message["on"] = params[0] == 1
-        elif opcode == 0x81:
-            message["type"] = "generic_onoff_get"
-        elif opcode == 0x82:
-            message["type"] = "generic_onoff_set"
-            message["on"] = params[0] == 1
-        elif opcode == 0x83:
-            message["type"] = "generic_level_set"
-            message["level"] = int.from_bytes(params[:2], "little", signed=True)
-        elif opcode == 0x84:
-            message["type"] = "generic_level_get"
-        elif opcode == 0x85:
-            message["type"] = "generic_level_status"
-            message["level"] = int.from_bytes(params[:2], "little", signed=True)
-        elif opcode == 0xC0:
-            message["type"] = "vendor_model"
-            company_id = struct.unpack("<H", params[:2])[0]
-            model_id = struct.unpack("<I", params[2:6])[0]
-            vendor_opcode = params[6] if len(params) > 6 else 0
-            vendor_params = params[7:] if len(params) > 7 else b""
+        if len(transport_pdu) >= 5:
+            akf_aid = transport_pdu[0]
+            akf = (akf_aid >> 6) & 0x01
+            aid = akf_aid & 0x3F
+            result["akf"] = akf
+            result["aid"] = aid
             
-            message["company_id"] = company_id
-            message["model_id"] = model_id
-            message["vendor_opcode"] = vendor_opcode
-            message["payload"] = vendor_params.hex()
+            plaintext = self._try_decrypt_upper_transport(
+                transport_pdu, akf, aid,
+                info["iv_index"], info["seq"], info["src"], dst
+            )
             
-            if company_id == LEITE_COMPANY_ID and model_id == LEITE_VENDOR_MODEL_ID:
-                message["type"] = "leite_vendor_model"
-                message = self._parse_leite_vendor_message(message, vendor_opcode, vendor_params)
+            if plaintext:
+                _LOGGER.info(f"[MESH] Upper transport decrypted: {plaintext.hex()}")
+                result["payload"] = plaintext.hex()
+                result["raw"] = plaintext.hex()
+                
+                parsed = self._parse_access_payload(plaintext)
+                if parsed:
+                    result.update(parsed)
+        
+        return result
+    
+    def _try_decrypt_upper_transport(self, transport_pdu, akf, aid, iv_index, seq, src, dst):
+        if akf == 1:
+            primary_key = self.app_key
+            primary_use_app = True
+            fallback_key = self.address_to_device_key.get(src) or self.address_to_device_key.get(dst)
+            fallback_use_app = False
+            primary_label = "AppKey"
+            fallback_label = "DeviceKey"
         else:
-            message["type"] = "unknown"
+            primary_key = self.address_to_device_key.get(src) or self.address_to_device_key.get(dst)
+            primary_use_app = False
+            fallback_key = self.app_key
+            fallback_use_app = True
+            primary_label = "DeviceKey"
+            fallback_label = "AppKey"
         
-        return message
+        if primary_key:
+            plaintext, info = decrypt_upper_transport(
+                transport_pdu, primary_key,
+                iv_index, seq, src, dst,
+                use_app_key=primary_use_app
+            )
+            if plaintext:
+                _LOGGER.debug(f"[MESH] Decrypted with {primary_label}")
+                return plaintext
+            _LOGGER.debug(f"[MESH] {primary_label} decryption failed: {info}")
+        else:
+            _LOGGER.debug(f"[MESH] No {primary_label} available, trying {fallback_label}")
+        
+        if fallback_key and fallback_key != primary_key:
+            plaintext, info = decrypt_upper_transport(
+                transport_pdu, fallback_key,
+                iv_index, seq, src, dst,
+                use_app_key=fallback_use_app
+            )
+            if plaintext:
+                _LOGGER.debug(f"[MESH] Decrypted with {fallback_label} (fallback)")
+                return plaintext
+            _LOGGER.debug(f"[MESH] {fallback_label} decryption also failed: {info}")
+        
+        return None
 
-    def _parse_leite_vendor_message(self, message, opcode, params):
-        if opcode == 0x01:
-            message["sub_type"] = "device_control"
-            if len(params) >= 2:
-                status = params[0]
-                device_data = params[1:].hex()
-                message["status"] = status
-                message["device_data"] = device_data
-        elif opcode == 0x02:
-            message["sub_type"] = "device_status"
-            if len(params) >= 1:
-                message["status_byte"] = params[0]
+    def _parse_access_payload(self, payload):
+        if len(payload) < 2:
+            return None
+        
+        first_byte = payload[0]
+        
+        if (first_byte & 0xC0) == 0xC0:
+            vendor_parsed = parse_vendor_model_message(payload)
+            if vendor_parsed:
+                result = {
+                    "type": "vendor_model",
+                    "opcode": vendor_parsed["opcode"],
+                    "company_id": vendor_parsed.get("company_id"),
+                    "vendor_model_id": vendor_parsed.get("vendor_model_id"),
+                    "parameters": vendor_parsed.get("parameters", b"").hex()
+                }
+                
+                if vendor_parsed.get("company_id") == LEITE_COMPANY_ID:
+                    result["type"] = "leite_vendor_model"
+                    self._parse_leite_vendor_message(result, vendor_parsed)
+                
+                return result
+            return {"type": "unknown_vendor", "raw": payload.hex()}
+        
+        if (first_byte & 0x80) == 0x80:
+            if len(payload) < 3:
+                return None
+            opcode = (first_byte << 8) | payload[1]
+            params = payload[2:]
+            result = {"opcode": opcode, "params": params.hex()}
+            
+            if opcode == 0x8411:
+                result["type"] = "generic_onoff_status"
+                result["on"] = params[0] == 1 if len(params) >= 1 else None
+            elif opcode == 0x8410:
+                result["type"] = "generic_onoff_get"
+            elif opcode == 0x8211:
+                result["type"] = "generic_onoff_set"
+                result["on"] = params[0] == 1 if len(params) >= 1 else None
+            elif opcode == 0x8405:
+                result["type"] = "generic_level_status"
+                result["level"] = int.from_bytes(params[:2], "big", signed=True) if len(params) >= 2 else None
+            elif opcode == 0x8205:
+                result["type"] = "generic_level_set"
+                result["level"] = int.from_bytes(params[:2], "big", signed=True) if len(params) >= 2 else None
+            elif opcode == 0x8406:
+                result["type"] = "generic_level_get"
+            elif opcode == 0x8202:
+                result["type"] = "generic_default_set"
+            elif opcode == 0x8402:
+                result["type"] = "generic_default_status"
+            elif opcode == 0x8408:
+                result["type"] = "generic_power_onoff_status"
+                result["state"] = params[0] if len(params) >= 1 else None
+            
+            return result
+        
+        opcode = first_byte
+        params = payload[1:]
+        result = {"opcode": opcode, "params": params.hex()}
+        
+        if opcode == 0x02:
+            result["type"] = "generic_onoff_get"
         elif opcode == 0x03:
-            message["sub_type"] = "brightness"
-            if len(params) >= 2:
-                message["brightness"] = int.from_bytes(params[:2], "little")
-        elif opcode == 0x04:
-            message["sub_type"] = "color_temp"
-            if len(params) >= 2:
-                message["color_temp_mired"] = int.from_bytes(params[:2], "little")
-        else:
-            message["sub_type"] = "unknown"
+            result["type"] = "generic_level_get"
         
-        return message
+        return result
 
-    async def _build_and_send_network_pdu(self, destination: int, access_pdu: bytes):
+    def _parse_leite_vendor_message(self, result, vendor_parsed):
+        opcode = vendor_parsed["opcode"]
+        params = vendor_parsed.get("parameters", b"")
+        
+        if opcode == 0x01:
+            result["sub_type"] = "device_control"
+            self._parse_leite_control_data(result, params)
+        elif opcode == 0x02:
+            result["sub_type"] = "device_status"
+            self._parse_leite_control_data(result, params)
+        elif opcode == 0x03:
+            result["sub_type"] = "brightness"
+            if len(params) >= 2:
+                result["brightness"] = int.from_bytes(params[:2], "big")
+        elif opcode == 0x04:
+            result["sub_type"] = "color_temp"
+            if len(params) >= 2:
+                result["color_temp_mired"] = int.from_bytes(params[:2], "big")
+    
+    def _parse_leite_control_data(self, result, params):
+        if len(params) >= 7 and params[0] == 0x66 and params[1] == 0xBB:
+            cmd_subtype = params[5]
+            
+            if cmd_subtype == 0x00:
+                value = params[6]
+                result["on"] = value == 1
+                result["status"] = value
+                result["status_byte"] = value
+            elif cmd_subtype == 0x01:
+                value = params[6]
+                result["brightness"] = value
+            elif cmd_subtype == 0x02:
+                if len(params) >= 9:
+                    temp_raw = int.from_bytes(params[6:8], "big")
+                    result["color_temp_mired"] = temp_raw
+            
+            result["control_data"] = params.hex()
+            return
+        
+        if len(params) >= 1:
+            result["status"] = params[0]
+            result["status_byte"] = params[0]
+            result["on"] = params[0] == 1
+        if len(params) >= 2:
+            result["brightness"] = int.from_bytes(params[:2], "big") if len(params) >= 2 else None
+
+    async def _build_and_send_network_pdu(self, destination: int, access_payload: bytes,
+                                          akf: int = 1, aid: int = None):
         if not self.connected or not self._data_in_char:
             _LOGGER.warning("[MESH] Not connected to Mesh network")
             return False
@@ -344,37 +489,34 @@ class LtechMeshManager:
         if not self._encryption_key:
             _LOGGER.warning("[MESH] Encryption key not set")
             return False
-
-        try:
-            async with self._seq_lock:
-                seq_number = self.seq_number
-                self.seq_number = (self.seq_number + 1) % (2**48)
-
-            nonce = generate_nonce(self.iv_index, seq_number, self._local_address)
-            
-            network_pdu_header = bytearray()
-            network_pdu_header.extend(self._nid)
-            network_pdu_header.extend(struct.pack("<I", self.iv_index))
-            network_pdu_header.extend(int.to_bytes(seq_number, 6, "little"))
-            network_pdu_header.extend(struct.pack("<H", destination))
-            
-            auth_data = bytes(network_pdu_header)
-            encrypted_data = aes_ccm_encrypt(self._encryption_key, nonce, access_pdu, auth_data)
-            
-            network_pdu = network_pdu_header + encrypted_data
-            
-            proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
-            
-            for pdu in proxy_pdus:
-                await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
-                _LOGGER.debug(f"[MESH] Sent PDU: {len(pdu)} bytes")
-            
-            _LOGGER.debug(f"[MESH] Sent network PDU to {destination}: seq={seq_number}")
-            return True
         
-        except Exception as e:
-            _LOGGER.error(f"[MESH] Failed to send network PDU: {e}")
-            return False
+        if aid is None:
+            aid = self._app_aid or 0
+        
+        async with self._seq_lock:
+            seq = self.seq_number
+            self.seq_number = (self.seq_number + 1) % (2**48)
+        
+        access_pdu = build_access_message(destination, akf, aid, access_payload)
+        
+        network_pdu = build_network_pdu(
+            ctl=0, ttl=DEFAULT_TTL,
+            seq=seq, src=self._local_address, dst=destination,
+            access_pdu=access_pdu,
+            enc_key=self._encryption_key, priv_key=self._privacy_key,
+            iv_index=self.iv_index,
+            nid=self._nid,
+            app_key=self.app_key, akf=akf, aid=aid
+        )
+        
+        proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
+        
+        for pdu in proxy_pdus:
+            await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
+            _LOGGER.debug(f"[MESH] Sent PDU: {len(pdu)} bytes")
+        
+        _LOGGER.debug(f"[MESH] Sent network PDU to 0x{destination:04X}: seq={seq}")
+        return True
 
     async def send_vendor_model_message(self, device_id: str, opcode: int, parameters: bytes, acknowledged: bool = False):
         if not self.connected or not self._data_in_char:
@@ -388,12 +530,10 @@ class LtechMeshManager:
                 return False
 
             vendor_payload = build_vendor_model_message(opcode, parameters)
-            access_pdu = build_access_message(address, APP_KEY_INDEX, vendor_payload)
-
-            result = await self._build_and_send_network_pdu(address, access_pdu)
+            result = await self._build_and_send_network_pdu(address, vendor_payload)
             
             if result:
-                _LOGGER.info(f"[MESH] Sent vendor model to {device_id} (addr={address}): opcode={opcode}")
+                _LOGGER.info(f"[MESH] Sent vendor model to {device_id} (addr=0x{address:04X}): opcode=0x{opcode:02X}")
             return result
             
         except Exception as e:
@@ -415,7 +555,7 @@ class LtechMeshManager:
             result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
             
             if result:
-                _LOGGER.info(f"[MESH] Sent control to {device_id} (addr={address})")
+                _LOGGER.info(f"[MESH] Sent control to {device_id} (addr=0x{address:04X})")
             return result
             
         except Exception as e:
@@ -435,13 +575,10 @@ class LtechMeshManager:
 
             control_data = "66BB0000000001EB" if on else "66BB0000000000EB"
             parameters = hex_to_bytes(control_data)
-            vendor_payload = build_vendor_model_message(0x01, parameters)
-            access_pdu = build_access_message(address, APP_KEY_INDEX, vendor_payload)
-
-            result = await self._build_and_send_network_pdu(address, access_pdu)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) to {'ON' if on else 'OFF'}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}, data={control_data}")
             return result
             
         except Exception as e:
@@ -463,10 +600,10 @@ class LtechMeshManager:
             control_data = f"66BB00000001{brightness_percent:02X}EB"
             parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) brightness to {brightness}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) brightness to {brightness}, data={control_data}")
             return result
             
         except Exception as e:
@@ -487,10 +624,10 @@ class LtechMeshManager:
             control_data = f"66BB00000002{color_temp:04X}EB"
             parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr={address}) color temp to {color_temp}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) color temp to {color_temp}, data={control_data}")
             return result
             
         except Exception as e:
@@ -499,3 +636,118 @@ class LtechMeshManager:
 
     def is_connected(self):
         return self.connected
+
+    def get_encryption_key(self):
+        return self._encryption_key
+
+    def get_privacy_key(self):
+        return self._privacy_key
+
+    def get_nid(self):
+        return self._nid
+
+    async def send_generic_onoff(self, device_address: int, on: bool) -> bool:
+        """Send Generic OnOff Set message (standard Mesh model)."""
+        if not self.connected or not self._data_in_char:
+            _LOGGER.warning("[MESH] Not connected to Mesh network")
+            return False
+
+        try:
+            # Generic OnOff Set: opcode 0x82, params=[on]
+            access_payload = bytes([0x82, 0x01 if on else 0x00])
+            access_pdu = build_access_message(device_address, 1, self._app_aid or 0, access_payload)
+
+            async with self._seq_lock:
+                seq = self.seq_number
+                self.seq_number = (self.seq_number + 1) % (2**48)
+
+            network_pdu = build_network_pdu(
+                ctl=0, ttl=DEFAULT_TTL,
+                seq=seq, src=self._local_address, dst=device_address,
+                access_pdu=access_pdu,
+                enc_key=self._encryption_key, priv_key=self._privacy_key,
+                iv_index=self.iv_index,
+                nid=self._nid,
+                app_key=self.app_key, akf=1, aid=self._app_aid or 0
+            )
+
+            proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
+            for pdu in proxy_pdus:
+                await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
+
+            _LOGGER.info(f"[MESH] Sent Generic OnOff {'ON' if on else 'OFF'} to 0x{device_address:04X}")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"[MESH] Failed to send Generic OnOff: {e}")
+            return False
+
+    async def send_generic_level(self, device_address: int, level: int) -> bool:
+        """Send Generic Level Set message (standard Mesh model)."""
+        if not self.connected or not self._data_in_char:
+            _LOGGER.warning("[MESH] Not connected to Mesh network")
+            return False
+
+        try:
+            # Generic Level Set: opcode 0x84, params=[level(2, signed BE)]
+            level_clamped = max(-32768, min(32767, level))
+            access_payload = bytes([0x84]) + struct.pack(">h", level_clamped)
+            access_pdu = build_access_message(device_address, 1, self._app_aid or 0, access_payload)
+
+            async with self._seq_lock:
+                seq = self.seq_number
+                self.seq_number = (self.seq_number + 1) % (2**48)
+
+            network_pdu = build_network_pdu(
+                ctl=0, ttl=DEFAULT_TTL,
+                seq=seq, src=self._local_address, dst=device_address,
+                access_pdu=access_pdu,
+                enc_key=self._encryption_key, priv_key=self._privacy_key,
+                iv_index=self.iv_index,
+                nid=self._nid,
+                app_key=self.app_key, akf=1, aid=self._app_aid or 0
+            )
+
+            proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
+            for pdu in proxy_pdus:
+                await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
+
+            _LOGGER.info(f"[MESH] Sent Generic Level {level} to 0x{device_address:04X}")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"[MESH] Failed to send Generic Level: {e}")
+            return False
+
+    async def send_vendor_model(self, device_address: int, opcode: int,
+                                parameters: bytes = b"", app_key_index: int = 0) -> bool:
+        """Send Vendor Model message."""
+        if not self.connected or not self._data_in_char:
+            _LOGGER.warning("[MESH] Not connected to Mesh network")
+            return False
+
+        try:
+            vendor_payload = build_vendor_model_message(opcode, parameters)
+            access_pdu = build_access_message(device_address, 1, self._app_aid or 0, vendor_payload)
+
+            async with self._seq_lock:
+                seq = self.seq_number
+                self.seq_number = (self.seq_number + 1) % (2**48)
+
+            network_pdu = build_network_pdu(
+                ctl=0, ttl=DEFAULT_TTL,
+                seq=seq, src=self._local_address, dst=device_address,
+                access_pdu=access_pdu,
+                enc_key=self._encryption_key, priv_key=self._privacy_key,
+                iv_index=self.iv_index,
+                nid=self._nid,
+                app_key=self.app_key, akf=1, aid=self._app_aid or 0
+            )
+
+            proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
+            for pdu in proxy_pdus:
+                await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
+
+            _LOGGER.info(f"[MESH] Sent Vendor Model opcode=0x{opcode:04X} to 0x{device_address:04X}")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"[MESH] Failed to send Vendor Model: {e}")
+            return False

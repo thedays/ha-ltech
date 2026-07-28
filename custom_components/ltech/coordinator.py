@@ -445,47 +445,43 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             return None
 
     def _parse_hex_payload(self, hex_str):
-        """Parse hex payload (66BB...EB format) to device state."""
+        """Parse hex payload (66BB...EB format) to device state.
+        
+        Format: 66BB + reserved(0000) + cmd_subtype + value + EB
+        - cmd_subtype=00: switch, value is 0 or 1
+        - cmd_subtype=01: brightness, value is 0-255
+        - cmd_subtype=02: color temperature, value is 2 bytes
+        """
         try:
             hex_str = hex_str.upper()
             if not (hex_str.startswith("66BB") and hex_str.endswith("EB")):
                 return None
             
             data = hex_str[4:-2]
-            if len(data) < 4:
+            if len(data) < 10:
                 return None
             
             state = {"CharSwitch": hex_str}
             
-            status_byte = int(data[0:2], 16)
-            is_on = (status_byte & 0x01) == 0x01
+            cmd_subtype = int(data[6:8], 16)
             
-            if len(data) >= 8:
-                byte1 = int(data[2:4], 16)
-                byte2 = int(data[4:6], 16)
-                byte3 = int(data[6:8], 16)
+            if cmd_subtype == 0x02:
+                if len(data) >= 12:
+                    color_temp_value = int(data[8:12], 16)
+                else:
+                    return None
                 
-                if byte1 == 0x01:
-                    brightness_value = byte2
-                    if brightness_value > 0:
-                        state["CharBrightness"] = f"66BB00000001{brightness_value:02X}EB"
-                
-                elif byte1 == 0x02:
-                    color_temp_value = (byte2 << 8) | byte3
-                    if color_temp_value > 0:
-                        state["CharTemp"] = f"66BB00000002{color_temp_value:04X}EB"
-            
-            if len(data) >= 12:
-                byte4 = int(data[8:10], 16)
-                byte5 = int(data[10:12], 16)
-                
-                if byte4 == 0x01 and "CharBrightness" not in state:
-                    state["CharBrightness"] = f"66BB00000001{byte5:02X}EB"
-                elif byte4 == 0x02 and "CharTemp" not in state:
-                    if len(data) >= 14:
-                        byte6 = int(data[12:14], 16)
-                        color_temp_value = (byte5 << 8) | byte6
-                        state["CharTemp"] = f"66BB00000002{color_temp_value:04X}EB"
+                if color_temp_value > 0:
+                    state["CharTemp"] = f"66BB00000002{color_temp_value:04X}EB"
+                state["is_on"] = True
+            elif cmd_subtype == 0x01:
+                brightness_value = int(data[8:10], 16)
+                if brightness_value > 0:
+                    state["CharBrightness"] = f"66BB00000001{brightness_value:02X}EB"
+                state["is_on"] = brightness_value > 0
+            else:
+                value = int(data[8:10], 16)
+                state["is_on"] = value == 1
             
             _LOGGER.debug(f"[MQTT_PARSE] Parsed hex payload: {hex_str[:50]} -> {state}")
             return state
@@ -543,6 +539,30 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                             
                             self.mesh_manager.set_device_addresses(device_addresses)
                             _LOGGER.info(f"[MESH] Set {len(device_addresses)} device addresses")
+                            
+                            device_keys_map = {}
+                            for device_id, device in self.devices.items():
+                                device_key = None
+                                
+                                param_str = device.get("param", "")
+                                if param_str:
+                                    try:
+                                        param_data = json.loads(param_str) if isinstance(param_str, str) else param_str
+                                        if isinstance(param_data, dict):
+                                            device_key = param_data.get("deviceKey") or param_data.get("devicekey")
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+                                
+                                if not device_key:
+                                    device_key = device.get("deviceKey") or device.get("devicekey")
+                                
+                                if device_key:
+                                    device_keys_map[str(device_id)] = device_key
+                                    _LOGGER.debug(f"[MESH_KEY] device_id={device_id}, device_key={device_key[:8]}...")
+                            
+                            if device_keys_map:
+                                self.mesh_manager.set_device_keys(device_keys_map)
+                                _LOGGER.info(f"[MESH] Set {len(device_keys_map)} device keys")
                         else:
                             _LOGGER.warning("Bluetooth Mesh connection failed, falling back to cloud API")
                     else:
@@ -613,8 +633,75 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
 
     def _on_mesh_message(self, message):
         try:
-            _LOGGER.debug(f"Mesh message received: {message}")
-            self._schedule_refresh()
+            _LOGGER.info(f"[MESH_MSG] Decrypted message: {message}")
+            
+            device_id = None
+            state_update = {}
+            
+            dst_addr = message.get("dst")
+            if dst_addr is not None and self.mesh_manager:
+                device_id = self.mesh_manager.get_device_by_address(dst_addr)
+            
+            if not device_id:
+                src_addr = message.get("src")
+                if src_addr is not None and self.mesh_manager:
+                    device_id = self.mesh_manager.get_device_by_address(src_addr)
+            
+            msg_type = message.get("type", "")
+            
+            if msg_type == "leite_vendor_model":
+                sub_type = message.get("sub_type", "")
+                
+                if sub_type in ("device_control", "device_status"):
+                    on_status = message.get("on")
+                    if on_status is not None:
+                        state_update["is_on"] = on_status
+                        status_val = 1 if on_status else 0
+                        state_update["CharSwitch"] = f"66BB000000000{status_val:02X}EB"
+                    
+                    brightness = message.get("brightness")
+                    if brightness is not None:
+                        state_update["CharBrightness"] = f"66BB00000001{brightness:02X}EB"
+                    
+                    temp_mired = message.get("color_temp_mired")
+                    if temp_mired is not None:
+                        state_update["CharTemp"] = f"66BB00000002{temp_mired:04X}EB"
+                
+                elif sub_type == "brightness":
+                    brightness = message.get("brightness", 0)
+                    state_update["CharBrightness"] = f"66BB00000001{brightness:02X}EB"
+                    
+                elif sub_type == "color_temp":
+                    temp_mired = message.get("color_temp_mired", 0)
+                    state_update["CharTemp"] = f"66BB00000002{temp_mired:04X}EB"
+                    
+            elif msg_type == "vendor_model":
+                opcode = message.get("opcode", 0)
+                params_hex = message.get("parameters", "")
+                _LOGGER.debug(f"[MESH_MSG] Unknown vendor model: opcode=0x{opcode:04X}, params={params_hex}")
+                        
+            elif msg_type == "generic_onoff_status":
+                on_val = message.get("on", False)
+                state_update["is_on"] = on_val
+                state_update["CharSwitch"] = f"66BB000000000{1 if on_val else 0:02X}EB"
+                
+            elif msg_type == "generic_level_status":
+                level = message.get("level", 0)
+                state_update["CharBrightness"] = f"66BB00000001{level:02X}EB"
+            
+            if device_id and state_update:
+                device_id_str = str(device_id)
+                old_state = self.device_states.get(device_id_str, {})
+                self.device_states[device_id_str] = {**old_state, **state_update}
+                _LOGGER.info(f"[MESH_UPDATE] device_id={device_id_str} updated state: {state_update}")
+                self._schedule_refresh()
+            elif device_id:
+                _LOGGER.debug(f"[MESH_MSG] Message for device {device_id} but no state parsed, refreshing")
+                self._schedule_refresh()
+            else:
+                _LOGGER.debug(f"[MESH_MSG] Cannot map address to device, refreshing")
+                self._schedule_refresh()
+                
         except Exception as e:
             _LOGGER.error(f"Error processing Mesh message: {e}")
 

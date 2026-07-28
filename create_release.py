@@ -41,17 +41,43 @@ if not GITHUB_TOKEN:
 
 REPO_OWNER = "thedays"
 REPO_NAME = "ha-ltech"
-TAG_NAME = "v2.3.68"
-RELEASE_TITLE = "v2.3.68 - Fix SSL connection issue"
-RELEASE_NOTES = """**Bug Fixes:**
-- Fix SSL connection issue by replacing requests with http.client
-- Replace requests/urllib3 with http.client.HTTPSConnection for SSL compatibility
-- Remove SSLAdapter class and requests session setup
-- Fixes SSLEOFError on Python 3.14 with newer urllib3
+TAG_NAME = "v2.4.0"
+RELEASE_TITLE = "v2.4.0 - Bluetooth Mesh Control & Communication Fix"
+RELEASE_NOTES = """**Major Features:**
+- Added Bluetooth Mesh (BLE) direct control support via Bleak library
+- Implemented Mesh network encryption/decryption (AES-CCM, K1/K2/K3/K4 key derivation)
+- Added Mesh gateway auto-connect and device discovery
 
-**Changes:**
-- Updated api.py to use http.client instead of requests
-- Version: 2.3.68"""
+**Bug Fixes:**
+- Fix Mesh upper transport decryption: removed incorrect AAD usage (use No AAD per Mesh spec)
+- Fix encrypt_upper_transport and decrypt_upper_transport to use assoc_len=0
+- Fix Ltech control data parsing: corrected cmd_subtype indexing (params[5] instead of params[4])
+- Fix light.py and switch.py state value parsing for 66BB...EB format
+- Fix multi-zone switch state parsing using cmd_subtype as zone index
+- Fix MQTT message payload parsing for hex control data (cmd_subtype and value fields)
+- Fix mesh_manager.py fallback decryption logic (AppKey/DeviceKey try order)
+- Fix API response handling - return full result dict instead of data only
+- Fix login/bind_user/get_place_info to handle result.data correctly
+- Fix JSON control character error in API response parsing
+- Fix SSL connection errors with forced TLSv1.2 and cipher configuration
+- Fix light control: pass action parameter to request_device_control
+
+**Files Modified:**
+- mesh_crypto.py: Complete rewrite with proper Mesh crypto (k1/k3/k4, encrypt/decrypt, vendor model)
+- mesh_manager.py: Added BLE connection, SAR handling, vendor model message parsing
+- api.py: Fixed response handling, SSL config, login/bind_user methods
+- coordinator.py: Fixed MQTT hex payload parsing, device state management
+- light.py: Fixed _parse_state_value for 66BB...EB format, Mesh control path
+- switch.py: Fixed _parse_state_value and _parse_zone_state for multi-zone switches
+- manifest.json: Updated version to 2.4.0
+
+**Requirements:**
+- bleak>=0.21.0 (new)
+- pycryptodome>=3.18.0
+- requests>=2.31.0
+- aliyun-iot-linkkit>=1.2.13
+
+**Version:** 2.4.0"""
 
 ASSET_PATH = "ltech-hass-integration.zip"
 ASSET_NAME = "ltech-hass-integration.zip"

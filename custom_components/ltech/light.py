@@ -268,9 +268,14 @@ class LtechLight(LtechEntity, LightEntity):
             hex_string = hex_string.upper()
             if hex_string.startswith("66BB") and hex_string.endswith("EB"):
                 data = hex_string[4:-2]
-                if len(data) >= 4:
-                    status_byte = int(data[0:2], 16)
-                    return 1 if (status_byte & 1) == 1 else 0
+                if len(data) >= 10:
+                    cmd_subtype = int(data[6:8], 16)
+                    
+                    if cmd_subtype == 0x02:
+                        if len(data) >= 12:
+                            return int(data[8:12], 16)
+                    else:
+                        return int(data[8:10], 16)
             return int(hex_string, 16)
         except (ValueError, TypeError):
             return None

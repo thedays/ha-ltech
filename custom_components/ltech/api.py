@@ -72,7 +72,7 @@ class LtechApiClient:
         return hashlib.md5(data_str.encode("utf-8")).hexdigest().lower()
 
     def _build_request(self, method, data=None):
-        timestamp = str(int(time.time() * 1000))
+        timestamp = str(int(time.time()))
         
         if data is None:
             data = ""
@@ -106,9 +106,9 @@ class LtechApiClient:
         payload = {
             "method": method,
             "format": "json",
-            "platform_version": "Android_2.8.0",
+            "platform_version": "iOS_2.8.0",
             "data": encrypted_data,
-            "system_model": "34_Pixel 8 Pro",
+            "system_model": "iOS 27.0_iPhone17,5",
             "v": "2.0",
             "session": self.session,
             "timestamp": timestamp,
@@ -215,10 +215,15 @@ class LtechApiClient:
                     body_str = body_str.replace('\x17', '').replace('\x18', '').replace('\x19', '').replace('\x1a', '')
                     body_str = body_str.replace('\x1b', '').replace('\x1c', '').replace('\x1d', '').replace('\x1e', '')
                     body_str = body_str.replace('\x1f', '')
-                    
+
                     _LOGGER.debug(f"[API_RESPONSE] cleaned_body_length={len(body_str)}, first_100_chars={body_str[:100]}")
-                    
-                    result = json.loads(body_str)
+
+                    try:
+                        result = json.loads(body_str)
+                    except json.JSONDecodeError:
+                        # 严格模式下，JSON 字符串中不允许出现原始控制字符（\t \n \r）
+                        # 使用 strict=False 允许这些控制字符存在于字符串中
+                        result = json.loads(body_str, strict=False)
                     
                     _LOGGER.info(f"[API_RESPONSE] ret={result.get('ret')}, msg={result.get('msg', '')}, data={str(result.get('data'))[:500]}")
                     

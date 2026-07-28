@@ -175,26 +175,25 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             _LOGGER.debug(f"[SWITCH_STATE] Using is_on from reportinstruct: {device_state['is_on']}")
             return device_state["is_on"]
         
+        state_value = device_state.get("CharSwitch")
+        if state_value is not None:
+            parsed = self._parse_state_value(state_value)
+            if parsed is not None:
+                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                    return parsed == 1
+                return parsed == 1
+        
         if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
             zone_key = f"zone{self._zone_index}"
             zone_state = device_state.get(zone_key, {})
             if isinstance(zone_state, dict):
                 state_value = zone_state.get("CharSwitch")
                 if state_value is not None:
-                    try:
-                        value_hex = state_value[-2:]
-                        return int(value_hex, 16) == 1
-                    except (ValueError, TypeError):
-                        return False
+                    parsed = self._parse_state_value(state_value)
+                    if parsed is not None:
+                        return parsed == 1
             return False
         
-        state_value = device_state.get("CharSwitch")
-        if state_value is not None:
-            try:
-                value_hex = state_value[-2:]
-                return int(value_hex, 16) == 1
-            except (ValueError, TypeError):
-                return False
         return False
 
     async def async_turn_on(self, **kwargs):
@@ -339,9 +338,14 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             hex_string = hex_string.upper()
             if hex_string.startswith("66BB") and hex_string.endswith("EB"):
                 data = hex_string[4:-2]
-                if len(data) >= 4:
-                    status_byte = int(data[2:4], 16)
-                    return 1 if (status_byte & 1) == 1 else 0
+                if len(data) >= 10:
+                    cmd_subtype = int(data[6:8], 16)
+                    
+                    if cmd_subtype == 0x02:
+                        if len(data) >= 12:
+                            return int(data[8:12], 16)
+                    else:
+                        return int(data[8:10], 16)
             return int(hex_string, 16)
         except (ValueError, TypeError):
             return None
@@ -364,8 +368,10 @@ class LtechSwitch(LtechEntity, SwitchEntity):
     def _parse_zone_state(self, hex_string, zone_index):
         """Parse zone state from CharSwitch hex string.
 
-        The CharSwitch format is: 66BB + data + EB
-        For multi-zone switches, each zone's state is represented by a bit in status_byte.
+        Format: 66BB + reserved(0000) + cmd_subtype + value + EB
+        - cmd_subtype=00: single-zone switch, value in params[6]
+        - cmd_subtype=01: brightness
+        - cmd_subtype>=01: multi-zone switch, zone=cmd_subtype, value in params[6]
         """
         if not isinstance(hex_string, str) or len(hex_string) < 8:
             return False
@@ -374,9 +380,14 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             hex_string = hex_string.upper()
             if hex_string.startswith("66BB") and hex_string.endswith("EB"):
                 data = hex_string[4:-2]
-                if len(data) >= 4:
-                    status_byte = int(data[2:4], 16)
-                    return bool(status_byte & (1 << (zone_index - 1)))
+                if len(data) >= 10:
+                    cmd_subtype = int(data[6:8], 16)
+                    value = int(data[8:10], 16)
+                    
+                    if cmd_subtype == zone_index:
+                        return value == 1
+                    elif cmd_subtype == 0x00 and zone_index == 1:
+                        return value == 1
         except (ValueError, TypeError):
             return False
 
