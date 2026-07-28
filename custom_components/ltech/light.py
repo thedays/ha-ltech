@@ -130,17 +130,25 @@ class LtechLight(LtechEntity, LightEntity):
     @property
     def is_on(self):
         device_state = self._get_device_state()
-        state_value = device_state.get("CharSwitch")
-        _LOGGER.debug(f"[LIGHT_STATE] device_id={self.device_id}, device_name={self.device_name}, device_state={device_state}, CharSwitch={state_value}")
+        _LOGGER.debug(f"[LIGHT_STATE] device_id={self.device_id}, device_name={self.device_name}, device_state={device_state}")
         
         if "is_on" in device_state:
-            _LOGGER.debug(f"[LIGHT_STATE] Using is_on from reportinstruct: {device_state['is_on']}")
+            _LOGGER.debug(f"[LIGHT_STATE] Using is_on from state: {device_state['is_on']}")
             return device_state["is_on"]
         
-        if state_value is not None:
-            parsed = self._parse_state_value(state_value)
-            _LOGGER.debug(f"[LIGHT_STATE] parsed_value={parsed}, is_on={parsed == 1 if parsed is not None else False}")
-            return parsed == 1 if parsed is not None else False
+        for field in ["CharSwitch", "CharBrightness", "CharTemp"]:
+            state_value = device_state.get(field)
+            if state_value is not None and isinstance(state_value, str) and state_value.upper().startswith("66BB"):
+                parsed = self._parse_state_value(state_value)
+                if parsed is not None:
+                    if field == "CharSwitch":
+                        result = parsed == 1
+                    else:
+                        result = parsed > 0
+                    _LOGGER.debug(f"[LIGHT_STATE] Parsed {field}={state_value[:30]}, parsed={parsed}, is_on={result}")
+                    return result
+        
+        _LOGGER.debug(f"[LIGHT_STATE] No state fields found, defaulting to off")
         return False
 
     async def async_turn_on(self, **kwargs):
@@ -150,14 +158,23 @@ class LtechLight(LtechEntity, LightEntity):
         try:
             platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Turning ON light {self.device_id} ({self.device_name}), brightness={brightness}, color_temp={color_temp_kelvin}")
+            _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
+                _LOGGER.info(f"[LIGHT_CONTROL] Attempting Mesh control for {self.device_id}")
                 mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
+                _LOGGER.info(f"[LIGHT_CONTROL] Mesh on result: {mesh_success}")
                 if brightness is not None:
-                    await self.coordinator.control_device_via_mesh(self.device_id, "brightness", brightness)
+                    bright_result = await self.coordinator.control_device_via_mesh(self.device_id, "brightness", brightness)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh brightness result: {bright_result}")
                 if color_temp_kelvin is not None:
                     color_temp_mired = 1000000 // color_temp_kelvin
-                    await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
+                    temp_result = await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh color_temp result: {temp_result}")
+            else:
+                _LOGGER.info(f"[LIGHT_CONTROL] Mesh not enabled, will use cloud fallback")
             
             if not mesh_success:
                 try:
@@ -214,9 +231,16 @@ class LtechLight(LtechEntity, LightEntity):
         try:
             platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Turning OFF light {self.device_id} ({self.device_name})")
+            _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
+            
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
+                _LOGGER.info(f"[LIGHT_CONTROL] Attempting Mesh control for {self.device_id}")
                 mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", False)
+                _LOGGER.info(f"[LIGHT_CONTROL] Mesh off result: {mesh_success}")
+            else:
+                _LOGGER.info(f"[LIGHT_CONTROL] Mesh not enabled, will use cloud fallback")
             
             if not mesh_success:
                 try:

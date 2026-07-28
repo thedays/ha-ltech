@@ -224,22 +224,33 @@ class LtechMeshManager:
                 _LOGGER.error(f"[MESH] Reconnect loop error: {e}")
 
     def _on_data_received(self, sender, data: bytearray):
-        _LOGGER.debug(f"[MESH] Received Mesh data: {data.hex()}")
+        _LOGGER.info(f"[MESH] Received Mesh data: {data.hex()} (len={len(data)})")
         try:
             parsed = parse_proxy_pdu(bytes(data))
+            _LOGGER.info(f"[MESH] Proxy PDU parsed: {parsed}")
             
             if parsed["is_segmented"]:
+                _LOGGER.info(f"[MESH] SAR segment: offset={parsed['segment_offset']}, last={parsed['last_segment']}")
                 network_pdu = self._handle_sar_receive(parsed)
                 if not network_pdu:
+                    _LOGGER.info(f"[MESH] SAR buffer incomplete, waiting for more segments")
                     return
             else:
                 network_pdu = parsed["network_pdu"]
             
+            _LOGGER.info(f"[MESH] Network PDU: {network_pdu.hex()} (len={len(network_pdu)})")
+            
             message = self._parse_network_pdu(network_pdu)
+            _LOGGER.info(f"[MESH] Parsed message: {message}")
+            
             if message and self._message_callback:
                 self._message_callback(message)
+            elif not message:
+                _LOGGER.warning(f"[MESH] Message parsing returned None")
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to parse Mesh message: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
 
     def _handle_sar_receive(self, parsed):
         network_pdu = parsed["network_pdu"]
@@ -268,32 +279,35 @@ class LtechMeshManager:
 
     def _parse_network_pdu(self, network_pdu):
         if not self._encryption_key or not self._privacy_key:
-            _LOGGER.debug("[MESH] Keys not derived, cannot decrypt")
+            _LOGGER.error("[MESH] Keys not derived, cannot decrypt - check if set_keys() was called")
             return None
         
         if len(network_pdu) < 12:
-            _LOGGER.debug(f"[MESH] Network PDU too short: {len(network_pdu)} bytes")
+            _LOGGER.error(f"[MESH] Network PDU too short: {len(network_pdu)} bytes (need at least 12)")
             return None
         
         first_byte = network_pdu[0]
         nid = first_byte & 0x7F
         expected_nid = self._nid
         if expected_nid and nid != expected_nid:
-            _LOGGER.debug(f"[MESH] NID mismatch: expected 0x{expected_nid:02X}, got 0x{nid:02X}")
+            _LOGGER.error(f"[MESH] NID mismatch: expected 0x{expected_nid:02X}, got 0x{nid:02X}")
             return None
+        
+        _LOGGER.info(f"[MESH] Decrypting network PDU: {network_pdu.hex()[:40]}...")
+        _LOGGER.info(f"[MESH] Using encryption_key={self._encryption_key.hex()[:16]}..., privacy_key={self._privacy_key.hex()[:16]}..., iv_index={self.iv_index}")
         
         cleartext, info = decrypt_network_pdu(
             network_pdu, self._encryption_key, self._privacy_key, self.iv_index
         )
         
         if cleartext is None:
-            _LOGGER.debug(f"[MESH] Network decryption failed: {info}")
+            _LOGGER.error(f"[MESH] Network decryption failed: {info}")
             return None
         
         dst = struct.unpack(">H", cleartext[:2])[0]
         transport_pdu = cleartext[2:]
         
-        _LOGGER.debug(f"[MESH] Network decrypted: DST=0x{dst:04X}, TransportPDU={transport_pdu.hex()}")
+        _LOGGER.info(f"[MESH] Network decrypted: DST=0x{dst:04X}, SRC=0x{info['src']:04X}, SEQ={info['seq']}, IVI={info['iv_index']}, TransportPDU={transport_pdu.hex()}")
         
         result = {
             "ctl": info["ctl"], "ttl": info["ttl"],
@@ -308,23 +322,35 @@ class LtechMeshManager:
             result["akf"] = akf
             result["aid"] = aid
             
+            _LOGGER.info(f"[MESH] Transport PDU: akf={akf}, aid={aid}, len={len(transport_pdu)}")
+            _LOGGER.info(f"[MESH] Trying upper transport decryption with src=0x{info['src']:04X}, dst=0x{dst:04X}, seq={info['seq']}, iv_index={info['iv_index']}")
+            
             plaintext = self._try_decrypt_upper_transport(
                 transport_pdu, akf, aid,
                 info["iv_index"], info["seq"], info["src"], dst
             )
             
             if plaintext:
-                _LOGGER.info(f"[MESH] Upper transport decrypted: {plaintext.hex()}")
+                _LOGGER.info(f"[MESH] Upper transport decrypted successfully: {plaintext.hex()}")
                 result["payload"] = plaintext.hex()
                 result["raw"] = plaintext.hex()
                 
                 parsed = self._parse_access_payload(plaintext)
                 if parsed:
+                    _LOGGER.info(f"[MESH] Access payload parsed: type={parsed.get('type')}, opcode={parsed.get('opcode')}")
                     result.update(parsed)
+                else:
+                    _LOGGER.warning(f"[MESH] Access payload parsing returned None")
+            else:
+                _LOGGER.error(f"[MESH] Upper transport decryption failed")
+        else:
+            _LOGGER.warning(f"[MESH] Transport PDU too short: {len(transport_pdu)} bytes")
         
         return result
     
     def _try_decrypt_upper_transport(self, transport_pdu, akf, aid, iv_index, seq, src, dst):
+        _LOGGER.info(f"[MESH] _try_decrypt_upper_transport: akf={akf}, aid={aid}, iv_index={iv_index}, seq={seq}, src=0x{src:04X}, dst=0x{dst:04X}")
+        
         if akf == 1:
             primary_key = self.app_key
             primary_use_app = True
@@ -340,30 +366,36 @@ class LtechMeshManager:
             primary_label = "DeviceKey"
             fallback_label = "AppKey"
         
+        _LOGGER.info(f"[MESH] Primary: {primary_label}, key={'set' if primary_key else 'None'}, use_app={primary_use_app}")
+        _LOGGER.info(f"[MESH] Fallback: {fallback_label}, key={'set' if fallback_key else 'None'}, use_app={fallback_use_app}")
+        
         if primary_key:
+            _LOGGER.info(f"[MESH] Trying {primary_label} decryption...")
             plaintext, info = decrypt_upper_transport(
                 transport_pdu, primary_key,
                 iv_index, seq, src, dst,
                 use_app_key=primary_use_app
             )
             if plaintext:
-                _LOGGER.debug(f"[MESH] Decrypted with {primary_label}")
+                _LOGGER.info(f"[MESH] SUCCESS: Decrypted with {primary_label}")
                 return plaintext
-            _LOGGER.debug(f"[MESH] {primary_label} decryption failed: {info}")
+            _LOGGER.info(f"[MESH] {primary_label} decryption failed: {info}")
         else:
-            _LOGGER.debug(f"[MESH] No {primary_label} available, trying {fallback_label}")
+            _LOGGER.warning(f"[MESH] No {primary_label} available, trying {fallback_label}")
         
         if fallback_key and fallback_key != primary_key:
+            _LOGGER.info(f"[MESH] Trying {fallback_label} decryption...")
             plaintext, info = decrypt_upper_transport(
                 transport_pdu, fallback_key,
                 iv_index, seq, src, dst,
                 use_app_key=fallback_use_app
             )
             if plaintext:
-                _LOGGER.debug(f"[MESH] Decrypted with {fallback_label} (fallback)")
+                _LOGGER.info(f"[MESH] SUCCESS: Decrypted with {fallback_label} (fallback)")
                 return plaintext
-            _LOGGER.debug(f"[MESH] {fallback_label} decryption also failed: {info}")
+            _LOGGER.error(f"[MESH] {fallback_label} decryption also failed: {info}")
         
+        _LOGGER.error(f"[MESH] All decryption attempts failed")
         return None
 
     def _parse_access_payload(self, payload):
@@ -575,14 +607,27 @@ class LtechMeshManager:
 
             control_data = "66BB0000000001EB" if on else "66BB0000000000EB"
             parameters = hex_to_bytes(control_data)
+            
+            _LOGGER.info(f"[MESH] Preparing to set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}")
+            _LOGGER.info(f"[MESH] Control data: {control_data} (hex), params={parameters.hex()}")
+            _LOGGER.info(f"[MESH] Net key: {self.net_key.hex() if self.net_key else 'None'}")
+            _LOGGER.info(f"[MESH] App key: {self.app_key.hex() if self.app_key else 'None'}")
+            _LOGGER.info(f"[MESH] NID: 0x{self._nid:02X} ({self._nid})")
+            _LOGGER.info(f"[MESH] IV Index: {self.iv_index}")
+            _LOGGER.info(f"[MESH] Encryption key derived: {self._encryption_key is not None}")
+            
             result = await self.send_vendor_model_message(device_id, 0x01, parameters)
             
             if result:
                 _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}, data={control_data}")
+            else:
+                _LOGGER.error(f"[MESH] Failed to send control to {device_id} (addr=0x{address:04X})")
             return result
             
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to set device on/off: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def set_device_brightness(self, device_id: str, brightness: int):

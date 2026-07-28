@@ -426,11 +426,14 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         """Parse MQTT payload to device state data."""
         try:
             if isinstance(payload, dict):
-                return payload
+                return self._enrich_state_with_is_on(payload)
             
             if isinstance(payload, str):
                 try:
-                    return json.loads(payload)
+                    parsed = json.loads(payload)
+                    if isinstance(parsed, dict):
+                        return self._enrich_state_with_is_on(parsed)
+                    return parsed
                 except json.JSONDecodeError:
                     pass
                 
@@ -443,6 +446,25 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error(f"[MQTT_PARSE] Error parsing payload: {e}")
             return None
+    
+    def _enrich_state_with_is_on(self, state_data):
+        """Enrich state data with is_on field based on available state fields."""
+        if not isinstance(state_data, dict):
+            return state_data
+        
+        if "is_on" in state_data:
+            return state_data
+        
+        for key in ["CharSwitch", "CharBrightness", "CharTemp"]:
+            value = state_data.get(key)
+            if value and isinstance(value, str) and value.upper().startswith("66BB"):
+                parsed = self._parse_hex_payload(value)
+                if parsed and "is_on" in parsed:
+                    state_data["is_on"] = parsed["is_on"]
+                    _LOGGER.debug(f"[MQTT_PARSE] Enriched state with is_on={parsed['is_on']} from {key}={value[:30]}")
+                break
+        
+        return state_data
 
     def _parse_hex_payload(self, hex_str):
         """Parse hex payload (66BB...EB format) to device state.

@@ -172,28 +172,35 @@ class LtechSwitch(LtechEntity, SwitchEntity):
             return False
         
         if "is_on" in device_state:
-            _LOGGER.debug(f"[SWITCH_STATE] Using is_on from reportinstruct: {device_state['is_on']}")
+            _LOGGER.debug(f"[SWITCH_STATE] Using is_on from state: {device_state['is_on']}")
             return device_state["is_on"]
         
-        state_value = device_state.get("CharSwitch")
-        if state_value is not None:
-            parsed = self._parse_state_value(state_value)
-            if parsed is not None:
-                if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
-                    return parsed == 1
-                return parsed == 1
+        for field in ["CharSwitch", "CharBrightness", "CharTemp"]:
+            state_value = device_state.get(field)
+            if state_value is not None and isinstance(state_value, str) and state_value.upper().startswith("66BB"):
+                parsed = self._parse_state_value(state_value)
+                if parsed is not None:
+                    if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
+                        result = parsed == 1
+                    else:
+                        result = parsed == 1
+                    _LOGGER.debug(f"[SWITCH_STATE] Parsed {field}={state_value[:30]}, parsed={parsed}, is_on={result}")
+                    return result
         
         if self._zone_index is not None and self._zone_count is not None and self._zone_count > 1:
             zone_key = f"zone{self._zone_index}"
             zone_state = device_state.get(zone_key, {})
             if isinstance(zone_state, dict):
                 state_value = zone_state.get("CharSwitch")
-                if state_value is not None:
+                if state_value is not None and isinstance(state_value, str) and state_value.upper().startswith("66BB"):
                     parsed = self._parse_state_value(state_value)
                     if parsed is not None:
+                        _LOGGER.debug(f"[SWITCH_STATE] Parsed zone {self._zone_index} CharSwitch, parsed={parsed}, is_on={parsed == 1}")
                         return parsed == 1
+            _LOGGER.debug(f"[SWITCH_STATE] Zone {self._zone_index} state not found, defaulting to off")
             return False
         
+        _LOGGER.debug(f"[SWITCH_STATE] No state fields found, defaulting to off")
         return False
 
     async def async_turn_on(self, **kwargs):
