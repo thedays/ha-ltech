@@ -41,32 +41,44 @@ if not GITHUB_TOKEN:
 
 REPO_OWNER = "thedays"
 REPO_NAME = "ha-ltech"
-TAG_NAME = "v2.4.2"
-RELEASE_TITLE = "v2.4.2 - Platform Device ID Fix & Mesh Diagnostics"
-RELEASE_NOTES = """**Major Fixes:**
+TAG_NAME = "v2.4.4"
+RELEASE_TITLE = "v2.4.4 - Mesh Setup Diagnostics & Control Flow Enhancement"
+RELEASE_NOTES = """**Key Fixes:**
+- Add Mesh setup completion callback to properly log final mesh_enabled state
+- Fix misleading "Mesh enabled: False" log that printed before async setup completed
+- Enhanced mesh_manager.py: full BLE device/service/characteristic discovery logging
+- Enhanced coordinator.py: detailed Mesh setup flow with step-by-step logs
+- Enhanced light.py: complete control flow logging including API result and MQTT payload
+- Enhanced switch.py: consistent control flow logging with light.py
+
+**v2.4.3 Fixes (included):**
+- Fix critical `_LOGger` typo to `_LOGGER` (4 instances across 2 files)
+- Fix NameError when Mesh setup encountered errors
+
+**v2.4.2 Features (included):**
 - Fix platformdeviceid retrieval: use get_platform_device_id() method
 - Auto-generate platformdeviceid from iotdevicename + iotproductkey when not present
-- Fix API control and MQTT control to use correct platformdeviceid
-- Enhanced Mesh initialization logging for troubleshooting
 - Enhanced Bluetooth scanning and connection diagnostics
 - Enhanced light/switch control flow logging
 
 **Diagnostics Added:**
+- [SETUP] log: shows Mesh task creation and completion status
+- [MESH] log: shows full Mesh setup flow with key retrieval and connection steps
+- [MESH] log: shows Bluetooth scan results with all discovered devices
+- [MESH] log: shows service discovery and characteristic details
 - [DEVICE_IOT] log: shows iotdevicename, iotproductkey, platformdeviceid per device
-- [MESH] log: shows full Mesh setup flow including key retrieval and connection
-- [MESH] log: shows Bluetooth scan results, service discovery, characteristic details
-- [LIGHT_CONTROL] log: shows platform_device_id, API result, MQTT payload details
-- Error traceback logging for all control failures
+- [LIGHT_CONTROL] log: shows platform_device_id, API result, MQTT payload
+- Error traceback logging for all failures
 
 **Files Modified:**
-- coordinator.py: Added get_platform_device_id() method, enhanced Mesh/device logging
-- light.py: Updated platform_device_id retrieval, enhanced control flow logging
-- switch.py: Updated platform_device_id retrieval, enhanced control flow logging
-- mesh_manager.py: Enhanced Bluetooth scan, connect, service discovery logging
-- __init__.py: Enhanced setup flow logging
-- manifest.json: Updated version to 2.4.2
+- __init__.py: Added mesh setup completion callback, fixed _LOGger typo
+- coordinator.py: Enhanced Mesh setup flow logging
+- light.py: Enhanced control flow logging with detailed diagnostics
+- switch.py: Enhanced control flow logging
+- mesh_manager.py: Enhanced BLE scan, connect, service discovery
+- manifest.json: Updated version to 2.4.4
 
-**Version:** 2.4.2"""
+**Version:** 2.4.4"""
 
 ASSET_PATH = "ltech-hass-integration.zip"
 ASSET_NAME = "ltech-hass-integration.zip"
