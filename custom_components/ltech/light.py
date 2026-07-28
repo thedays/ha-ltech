@@ -156,9 +156,9 @@ class LtechLight(LtechEntity, LightEntity):
         color_temp_kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN)
         
         try:
-            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            platform_device_id = self.coordinator.get_platform_device_id(self.device_id)
             
-            _LOGGER.info(f"[LIGHT_CONTROL] Turning ON light {self.device_id} ({self.device_name}), brightness={brightness}, color_temp={color_temp_kelvin}")
+            _LOGGER.info(f"[LIGHT_CONTROL] Turning ON light {self.device_id} ({self.device_name}), platform_device_id={platform_device_id}, brightness={brightness}, color_temp={color_temp_kelvin}")
             _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
             
             mesh_success = False
@@ -177,8 +177,9 @@ class LtechLight(LtechEntity, LightEntity):
                 _LOGGER.info(f"[LIGHT_CONTROL] Mesh not enabled, will use cloud fallback")
             
             if not mesh_success:
+                _LOGGER.info(f"[LIGHT_CONTROL] Attempting API control for {self.device_id}")
                 try:
-                    await self.hass.async_add_executor_job(
+                    api_result = await self.hass.async_add_executor_job(
                         self.coordinator.api.control_light,
                         self.device_id,
                         True,
@@ -186,10 +187,14 @@ class LtechLight(LtechEntity, LightEntity):
                         color_temp_kelvin,
                         platform_device_id,
                     )
+                    _LOGGER.info(f"[LIGHT_CONTROL] API control result: {api_result}")
                 except Exception as api_error:
                     _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
+                    import traceback
+                    _LOGGER.error(f"[MQTT_CONTROL] API error traceback: {traceback.format_exc()}")
                 
                 mqtt_success = False
+                _LOGGER.info(f"[LIGHT_CONTROL] mqtt_client={self.coordinator.mqtt_client is not None}, is_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else 'N/A'}")
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
                     mqtt_data = {
                         "deviceid": int(self.device_id),
@@ -206,6 +211,7 @@ class LtechLight(LtechEntity, LightEntity):
                         mqtt_data["platformdeviceid"] = platform_device_id
                     
                     mqtt_payload = json.dumps(mqtt_data)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Sending MQTT control: {mqtt_payload}")
                     mqtt_success = await self.hass.async_add_executor_job(
                         self.coordinator.control_device_via_mqtt,
                         self.device_id,
@@ -215,23 +221,30 @@ class LtechLight(LtechEntity, LightEntity):
                 else:
                     _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Updating state for {self.device_id}: is_on=True")
             self.coordinator.device_states[self.device_id] = {"is_on": True}
             if brightness is not None:
                 self.coordinator.device_states[self.device_id]["CharBrightness"] = hex(int((brightness / 255) * 100))[2:].upper().zfill(2)
             self.schedule_update_ha_state()
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Refreshing state for {self.device_id}")
             await self.coordinator.async_refresh()
+            _LOGGER.info(f"[LIGHT_CONTROL] Turn ON completed for {self.device_id}")
         
         except LtechAuthError as e:
             _LOGGER.error("Authentication failed when turning on light, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn on light: %s", e)
+        except Exception as e:
+            _LOGGER.error(f"Unexpected error turning on light: {e}")
+            import traceback
+            _LOGGER.error(f"Traceback: {traceback.format_exc()}")
 
     async def async_turn_off(self, **kwargs):
         try:
-            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            platform_device_id = self.coordinator.get_platform_device_id(self.device_id)
             
-            _LOGGER.info(f"[LIGHT_CONTROL] Turning OFF light {self.device_id} ({self.device_name})")
+            _LOGGER.info(f"[LIGHT_CONTROL] Turning OFF light {self.device_id} ({self.device_name}), platform_device_id={platform_device_id}")
             _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
             
             mesh_success = False
@@ -243,8 +256,9 @@ class LtechLight(LtechEntity, LightEntity):
                 _LOGGER.info(f"[LIGHT_CONTROL] Mesh not enabled, will use cloud fallback")
             
             if not mesh_success:
+                _LOGGER.info(f"[LIGHT_CONTROL] Attempting API control for {self.device_id}")
                 try:
-                    await self.hass.async_add_executor_job(
+                    api_result = await self.hass.async_add_executor_job(
                         self.coordinator.api.control_light,
                         self.device_id,
                         False,
@@ -252,10 +266,14 @@ class LtechLight(LtechEntity, LightEntity):
                         None,
                         platform_device_id,
                     )
+                    _LOGGER.info(f"[LIGHT_CONTROL] API control result: {api_result}")
                 except Exception as api_error:
                     _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
+                    import traceback
+                    _LOGGER.error(f"[MQTT_CONTROL] API error traceback: {traceback.format_exc()}")
                 
                 mqtt_success = False
+                _LOGGER.info(f"[LIGHT_CONTROL] mqtt_client={self.coordinator.mqtt_client is not None}, is_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else 'N/A'}")
                 if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
                     mqtt_data = {
                         "deviceid": int(self.device_id),
@@ -265,6 +283,7 @@ class LtechLight(LtechEntity, LightEntity):
                         mqtt_data["platformdeviceid"] = platform_device_id
                     
                     mqtt_payload = json.dumps(mqtt_data)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Sending MQTT control: {mqtt_payload}")
                     mqtt_success = await self.hass.async_add_executor_job(
                         self.coordinator.control_device_via_mqtt,
                         self.device_id,
@@ -274,15 +293,22 @@ class LtechLight(LtechEntity, LightEntity):
                 else:
                     _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Updating state for {self.device_id}: is_on=False")
             self.coordinator.device_states[self.device_id] = {"is_on": False}
             self.schedule_update_ha_state()
             
+            _LOGGER.info(f"[LIGHT_CONTROL] Refreshing state for {self.device_id}")
             await self.coordinator.async_refresh()
+            _LOGGER.info(f"[LIGHT_CONTROL] Turn OFF completed for {self.device_id}")
         
         except LtechAuthError as e:
             _LOGGER.error("Authentication failed when turning off light, please check credentials: %s", e)
         except LtechApiError as e:
             _LOGGER.error("Failed to turn off light: %s", e)
+        except Exception as e:
+            _LOGGER.error(f"Unexpected error turning off light: {e}")
+            import traceback
+            _LOGGER.error(f"Traceback: {traceback.format_exc()}")
 
     def _parse_state_value(self, hex_string):
         if not isinstance(hex_string, str) or len(hex_string) < 8:

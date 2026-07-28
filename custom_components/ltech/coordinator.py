@@ -94,7 +94,11 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                                 _LOGGER.warning(f"[DUPLICATE] Device with id={device_id} already exists, skipping")
                             else:
                                 device_state = device.get("deviceState", "NOT_FOUND")
+                                iot_device_name = device.get("iotdevicename") or device.get("iotDeviceName")
+                                iot_product_key = device.get("iotproductkey") or device.get("iotProductKey")
+                                platform_device_id = device.get("platformdeviceid") or device.get("platformDeviceId")
                                 _LOGGER.debug(f"[DEVICE_STATE] device_id={device_id}, device_name={device_name}, deviceState={device_state[:100] if isinstance(device_state, str) else type(device_state)}")
+                                _LOGGER.info(f"[DEVICE_IOT] device_id={device_id}, iotdevicename={iot_device_name}, iotproductkey={iot_product_key}, platformdeviceid={platform_device_id}")
                                 self.devices[device_id] = device
                                 self._parse_sync_device_data(device)
                                 if device_name in device_name_counts:
@@ -133,6 +137,23 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
 
     def get_device(self, device_id):
         return self.devices.get(device_id)
+    
+    def get_platform_device_id(self, device_id):
+        device = self.devices.get(device_id)
+        if not device:
+            return None
+        
+        platform_device_id = device.get("platformdeviceid") or device.get("platformDeviceId")
+        if platform_device_id:
+            return platform_device_id
+        
+        iot_device_name = device.get("iotdevicename") or device.get("iotDeviceName")
+        iot_product_key = device.get("iotproductkey") or device.get("iotProductKey")
+        
+        if iot_device_name and iot_product_key:
+            return f"{iot_product_key}_{iot_device_name}"
+        
+        return None
 
     def get_devices_by_type(self, product_types):
         devices = []
@@ -520,29 +541,41 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"[MQTT_ERROR] Failed to schedule refresh: {e}")
 
     async def start_mesh(self, place_id):
+        _LOGGER.info(f"[MESH] Starting mesh setup for place_id={place_id}")
+        _LOGGER.info(f"[MESH] Current state: mesh_enabled={self.mesh_enabled}, mesh_manager_exists={self.mesh_manager is not None}")
+        
         if self.mesh_manager:
+            _LOGGER.info("[MESH] Disconnecting existing mesh manager")
             await self.mesh_manager.disconnect()
 
         try:
+            _LOGGER.info(f"[MESH] Fetching place info for {place_id}")
             place_info = await self.hass.async_add_executor_job(self.api.get_place_info, place_id)
+            _LOGGER.info(f"[MESH] Place info received: type={type(place_info).__name__}, keys={list(place_info.keys()) if isinstance(place_info, dict) else 'N/A'}")
             
             if place_info and isinstance(place_info, dict):
                 info = place_info.get("info", {})
+                _LOGGER.info(f"[MESH] Info type: {type(info).__name__}")
                 if isinstance(info, dict):
                     net_key = info.get("netkey")
                     app_key = info.get("applicationkey")
                     mesh_uuid = info.get("meshuuid")
                     iv_index = info.get("ivindex", 0)
                     
+                    _LOGGER.info(f"[MESH] Keys found: netkey={'YES' if net_key else 'NO'}, appkey={'YES' if app_key else 'NO'}, meshuuid={'YES' if mesh_uuid else 'NO'}")
+                    
                     if net_key and mesh_uuid:
                         _LOGGER.info(f"Mesh keys found: netkey={net_key[:8]}..., appkey={app_key[:8]}..., uuid={mesh_uuid[:8]}..., iv_index={iv_index}")
                         
+                        _LOGGER.info("[MESH] Creating mesh manager")
                         self.mesh_manager = LtechMeshManager()
                         self.mesh_manager.set_keys(net_key, app_key, mesh_uuid)
                         self.mesh_manager.set_iv_index(iv_index)
                         self.mesh_manager.set_message_callback(self._on_mesh_message)
                         
+                        _LOGGER.info("[MESH] Attempting Bluetooth connection...")
                         await self.mesh_manager.connect()
+                        _LOGGER.info(f"[MESH] Connection result: connected={self.mesh_manager.connected}")
                         
                         if self.mesh_manager.connected:
                             self.mesh_enabled = True
@@ -586,17 +619,21 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                                 self.mesh_manager.set_device_keys(device_keys_map)
                                 _LOGGER.info(f"[MESH] Set {len(device_keys_map)} device keys")
                         else:
-                            _LOGGER.warning("Bluetooth Mesh connection failed, falling back to cloud API")
+                            _LOGGER.warning("[MESH] Bluetooth Mesh connection failed, falling back to cloud API")
+                            _LOGger.info("[MESH] Connection failed - check if gateway is powered on and in range")
                     else:
-                        _LOGGER.info("Mesh keys not found, skipping Mesh setup")
+                        _LOGGER.info(f"[MESH] Mesh keys not found, skipping Mesh setup. netkey={net_key is not None}, meshuuid={mesh_uuid is not None}")
                 else:
-                    _LOGGER.info("Place info is not a dict, skipping Mesh setup")
+                    _LOGGER.info(f"[MESH] Place info 'info' is not a dict: type={type(info).__name__}, value={str(info)[:200]}")
             else:
-                _LOGGER.info("Place info API returned empty, skipping Mesh setup")
+                _LOGGER.info(f"[MESH] Place info API returned empty or not a dict: type={type(place_info).__name__}")
                 
         except Exception as e:
-            _LOGGER.info(f"Mesh setup skipped due to API error: {e}")
+            _LOGger.error(f"[MESH] Mesh setup error: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
 
+        _LOGGER.info(f"[MESH] Mesh setup completed, mesh_enabled={self.mesh_enabled}")
         return self.mesh_enabled
 
     async def stop_mesh(self):

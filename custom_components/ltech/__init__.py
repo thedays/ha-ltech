@@ -58,11 +58,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         first_place = places_list[0]
         place_id = first_place.get("placeId") or first_place.get("placeid")
         _LOGGER.info(f"[SETUP] Starting mesh for place_id={place_id}")
-        hass.async_create_task(coordinator.start_mesh(place_id))
+        _LOGGER.info("[SETUP] Mesh start_mesh called (async, may take a few seconds)")
+        mesh_task = hass.async_create_task(coordinator.start_mesh(place_id))
+        _LOGger.info("[SETUP] Mesh task created")
+    else:
+        _LOGGER.warning("[SETUP] No places found, skipping Mesh setup")
+        _LOGGER.warning("[SETUP] Please ensure your account has at least one place/area configured")
     
     _LOGGER.info(f"[SETUP] Starting MQTT for realtime updates")
     mqtt_started = await hass.async_add_executor_job(coordinator.start_mqtt)
     _LOGGER.info(f"[SETUP] MQTT started: {mqtt_started}")
+    _LOGger.info(f"[SETUP] Mesh enabled: {coordinator.mesh_enabled}")
     
     _LOGGER.info(f"[SETUP] Forwarding setup to platforms: {PLATFORMS}")
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

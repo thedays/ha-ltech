@@ -205,7 +205,7 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         try:
-            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            platform_device_id = self.coordinator.get_platform_device_id(self.device_id)
             
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
@@ -272,7 +272,7 @@ class LtechSwitch(LtechEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         try:
-            platform_device_id = self.device.get("platformdeviceid") or self.device.get("platformDeviceId")
+            platform_device_id = self.coordinator.get_platform_device_id(self.device_id)
             
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:

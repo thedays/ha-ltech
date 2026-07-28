@@ -41,25 +41,32 @@ if not GITHUB_TOKEN:
 
 REPO_OWNER = "thedays"
 REPO_NAME = "ha-ltech"
-TAG_NAME = "v2.4.1"
-RELEASE_TITLE = "v2.4.1 - MQTT State Sync Fix & Enhanced Logging"
-RELEASE_NOTES = """**Bug Fixes:**
-- Fix MQTT state synchronization: light turns on but state shows off
-- Fix _parse_mqtt_payload to add is_on field for JSON payloads
-- Fix light.py is_on property to infer state from Brightness/Temp fields
-- Fix switch.py is_on property for consistency
-- Fix _enrich_state_with_is_on to properly handle CharSwitch, CharBrightness, CharTemp
-- Enhanced Mesh control logging for debugging
-- Enhanced MQTT message parsing logging
+TAG_NAME = "v2.4.2"
+RELEASE_TITLE = "v2.4.2 - Platform Device ID Fix & Mesh Diagnostics"
+RELEASE_NOTES = """**Major Fixes:**
+- Fix platformdeviceid retrieval: use get_platform_device_id() method
+- Auto-generate platformdeviceid from iotdevicename + iotproductkey when not present
+- Fix API control and MQTT control to use correct platformdeviceid
+- Enhanced Mesh initialization logging for troubleshooting
+- Enhanced Bluetooth scanning and connection diagnostics
+- Enhanced light/switch control flow logging
+
+**Diagnostics Added:**
+- [DEVICE_IOT] log: shows iotdevicename, iotproductkey, platformdeviceid per device
+- [MESH] log: shows full Mesh setup flow including key retrieval and connection
+- [MESH] log: shows Bluetooth scan results, service discovery, characteristic details
+- [LIGHT_CONTROL] log: shows platform_device_id, API result, MQTT payload details
+- Error traceback logging for all control failures
 
 **Files Modified:**
-- coordinator.py: Added _enrich_state_with_is_on method, fixed _parse_mqtt_payload
-- light.py: Fixed is_on property to infer state from multiple fields, enhanced logging
-- switch.py: Fixed is_on property for consistency, enhanced logging
-- mesh_manager.py: Enhanced Mesh send/receive/decryption logging
-- manifest.json: Updated version to 2.4.1
+- coordinator.py: Added get_platform_device_id() method, enhanced Mesh/device logging
+- light.py: Updated platform_device_id retrieval, enhanced control flow logging
+- switch.py: Updated platform_device_id retrieval, enhanced control flow logging
+- mesh_manager.py: Enhanced Bluetooth scan, connect, service discovery logging
+- __init__.py: Enhanced setup flow logging
+- manifest.json: Updated version to 2.4.2
 
-**Version:** 2.4.1"""
+**Version:** 2.4.2"""
 
 ASSET_PATH = "ltech-hass-integration.zip"
 ASSET_NAME = "ltech-hass-integration.zip"

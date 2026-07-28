@@ -124,39 +124,68 @@ class LtechMeshManager:
     async def scan_for_mesh_devices(self, timeout: int = 10) -> list:
         devices = []
         try:
-            _LOGGER.info("[MESH] Scanning for Bluetooth Mesh devices...")
+            _LOGGER.info(f"[MESH] Scanning for Bluetooth Mesh devices (timeout={timeout}s)...")
             found_devices = await BleakScanner.discover(timeout=timeout)
+            _LOGGER.info(f"[MESH] Found {len(found_devices)} Bluetooth devices total")
+            
             for device in found_devices:
+                _LOGGER.info(f"[MESH] Device: name={device.name}, address={device.address}, RSSI={device.rssi}")
+                
                 if device.name and (
-                    "Ltech" in device.name or "Mesh" in device.name or "Gateway" in device.name
+                    "Ltech" in device.name or 
+                    "Mesh" in device.name or 
+                    "Gateway" in device.name or
+                    "LTech" in device.name or
+                    "ltech" in device.name.lower()
                 ):
                     devices.append(device)
-                    _LOGGER.info(f"[MESH] Found Mesh device: {device.name} ({device.address})")
+                    _LOGGER.info(f"[MESH] Found matching Mesh device: {device.name} ({device.address})")
+            
+            if not devices:
+                _LOGGER.warning("[MESH] No matching Mesh devices found. Showing all devices:")
+                for device in found_devices:
+                    _LOGGER.warning(f"[MESH]   {device.name or '(no name)'} ({device.address}) RSSI={device.rssi}")
+                    
         except Exception as e:
             _LOGGER.error(f"[MESH] Scan failed: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
         return devices
 
     async def connect(self, device_address: Optional[str] = None):
+        _LOGGER.info(f"[MESH] Connect called: device_address={device_address}, currently_connected={self.connected}")
+        
         if self.connected:
+            _LOGGER.info("[MESH] Already connected, disconnecting first")
             await self.disconnect()
 
         try:
             if not device_address:
+                _LOGGER.info("[MESH] No device address provided, scanning...")
                 devices = await self.scan_for_mesh_devices(timeout=5)
                 if not devices:
-                    _LOGGER.warning("[MESH] No Mesh devices found")
+                    _LOGGER.warning("[MESH] No Mesh devices found during scan")
+                    _LOGGER.warning("[MESH] Please ensure:")
+                    _LOGGER.warning("[MESH]   1. The Ltech gateway is powered on")
+                    _LOGGER.warning("[MESH]   2. The gateway is within Bluetooth range (10-30 meters)")
+                    _LOGGER.warning("[MESH]   3. Your Mac's Bluetooth is turned on")
                     return
                 device_address = devices[0].address
+                _LOGGER.info(f"[MESH] Selected device: {device_address}")
 
+            _LOGGER.info(f"[MESH] Looking for device by address: {device_address}")
             self.device = await BleakScanner.find_device_by_address(device_address)
             if not self.device:
-                _LOGGER.error(f"[MESH] Device {device_address} not found")
+                _LOGGER.error(f"[MESH] Device {device_address} not found by address")
                 return
 
             _LOGGER.info(f"[MESH] Connecting to Mesh device: {self.device.name} ({self.device.address})")
             self.client = BleakClient(self.device)
+            _LOGGER.info("[MESH] BleakClient created, connecting...")
             await self.client.connect()
+            _LOGGER.info("[MESH] BLE connection established")
 
+            _LOGGER.info("[MESH] Discovering services...")
             await self._discover_services()
             
             try:
@@ -167,32 +196,53 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] Failed to set MTU: {e}, using default 23")
 
             self.connected = True
-            _LOGGER.info("[MESH] Connected to Mesh network")
+            _LOGGER.info("[MESH] Connected to Mesh network, mtu={self.mtu}")
 
             if self._reconnect_task:
                 self._reconnect_task.cancel()
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+            _LOGGER.info("[MESH] Reconnect loop started")
 
         except Exception as e:
             _LOGGER.error(f"[MESH] Connection failed: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Connection traceback: {traceback.format_exc()}")
             self.connected = False
 
     async def _discover_services(self):
         if not self.client:
+            _LOGGER.warning("[MESH] No BLE client, cannot discover services")
             return
 
+        _LOGGER.info("[MESH] Discovering BLE services...")
         services = await self.client.get_services()
+        _LOGGER.info(f"[MESH] Found {len(services)} services")
 
+        for service in services:
+            _LOGGER.info(f"[MESH] Service: {service.uuid}")
+            for char in service.characteristics:
+                _LOGGER.info(f"[MESH]   Characteristic: {char.uuid}, properties={char.properties}")
+
+        _LOGGER.info(f"[MESH] Looking for Mesh Proxy Service: {MESH_PROXY_SERVICE_UUID}")
         mesh_proxy_service = services.get_service(MESH_PROXY_SERVICE_UUID)
         if mesh_proxy_service:
+            _LOGGER.info("[MESH] Mesh Proxy service found")
             self._data_in_char = mesh_proxy_service.get_characteristic(MESH_PROXY_DATA_IN_UUID)
             self._data_out_char = mesh_proxy_service.get_characteristic(MESH_PROXY_DATA_OUT_UUID)
+            _LOGGER.info(f"[MESH] Data IN characteristic: {'found' if self._data_in_char else 'not found'}")
+            _LOGGER.info(f"[MESH] Data OUT characteristic: {'found' if self._data_out_char else 'not found'}")
 
-            if self._data_out_char and self._data_out_char.properties.read:
-                await self.client.start_notify(self._data_out_char, self._on_data_received)
-                _LOGGER.info("[MESH] Mesh Proxy service found and notifications enabled")
+            if self._data_out_char:
+                _LOGGER.info(f"[MESH] Data OUT properties: {self._data_out_char.properties}")
+                if "notify" in self._data_out_char.properties or "indicate" in self._data_out_char.properties:
+                    await self.client.start_notify(self._data_out_char, self._on_data_received)
+                    _LOGGER.info("[MESH] Notifications enabled on Data OUT characteristic")
+                else:
+                    _LOGGER.warning("[MESH] Data OUT characteristic does not support notifications/indications")
+            else:
+                _LOGGER.warning("[MESH] Data OUT characteristic not found")
         else:
-            _LOGGER.warning("[MESH] Mesh Proxy service not found")
+            _LOGGER.warning(f"[MESH] Mesh Proxy service not found. Available services: {[s.uuid for s in services]}")
 
     async def disconnect(self):
         if self._reconnect_task:
