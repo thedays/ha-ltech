@@ -620,7 +620,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                                 _LOGGER.info(f"[MESH] Set {len(device_keys_map)} device keys")
                         else:
                             _LOGGER.warning("[MESH] Bluetooth Mesh connection failed, falling back to cloud API")
-                            _LOGger.info("[MESH] Connection failed - check if gateway is powered on and in range")
+                            _LOGGER.info("[MESH] Connection failed - check if gateway is powered on and in range")
                     else:
                         _LOGGER.info(f"[MESH] Mesh keys not found, skipping Mesh setup. netkey={net_key is not None}, meshuuid={mesh_uuid is not None}")
                 else:
@@ -629,7 +629,7 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.info(f"[MESH] Place info API returned empty or not a dict: type={type(place_info).__name__}")
                 
         except Exception as e:
-            _LOGger.error(f"[MESH] Mesh setup error: {e}")
+            _LOGGER.error(f"[MESH] Mesh setup error: {e}")
             import traceback
             _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
 
