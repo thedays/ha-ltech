@@ -20,7 +20,7 @@ PLATFORMS = ["light", "switch", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    _LOGGER.info(f"[SETUP] Starting Ltech integration setup v2.4.4")
+    _LOGGER.info(f"[SETUP] Starting Ltech integration setup v2.4.8")
     _LOGGER.info(f"[SETUP] Entry data keys: {list(entry.data.keys())}")
     
     import json
@@ -57,6 +57,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         places_list = coordinator.places
     
     _LOGGER.info(f"[SETUP] Places list count: {len(places_list)}")
+    if places_list:
+        for i, place in enumerate(places_list):
+            place_id_log = place.get("placeId") or place.get("placeid")
+            place_name = place.get("placeName") or place.get("placename", "")
+            _LOGGER.info(f"[SETUP] Place[{i}]: id={place_id_log}, name={place_name}")
     
     if places_list:
         first_place = places_list[0]
@@ -79,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         _LOGGER.warning("[SETUP] No places found, skipping Mesh setup")
         _LOGGER.warning("[SETUP] Please ensure your account has at least one place/area configured")
+        _LOGGER.warning(f"[SETUP] coordinator.places type={type(coordinator.places).__name__}, value={str(coordinator.places)[:200]}")
     
     _LOGGER.info(f"[SETUP] Starting MQTT for realtime updates")
     mqtt_started = await hass.async_add_executor_job(coordinator.start_mqtt)
