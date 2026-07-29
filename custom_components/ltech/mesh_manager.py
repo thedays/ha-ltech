@@ -575,11 +575,23 @@ class LtechMeshManager:
         if aid is None:
             aid = self._app_aid or 0
         
+        # 根据 akf 选择加密密钥
+        app_key = self.app_key
+        device_key = None
+        
+        if akf == 0:
+            # Vendor Model 使用 DeviceKey
+            device_key = self.address_to_device_key.get(destination)
+            if device_key is None:
+                _LOGGER.warning(f"[MESH] No device key for address 0x{destination:04X}, trying app_key fallback")
+        
         async with self._seq_lock:
             seq = self.seq_number
             self.seq_number = (self.seq_number + 1) % (2**48)
         
         access_pdu = build_access_message(destination, akf, aid, access_payload)
+        
+        _LOGGER.info(f"[MESH] Building network PDU: dst=0x{destination:04X}, akf={akf}, aid={aid}, seq={seq}, use_device_key={device_key is not None}")
         
         network_pdu = build_network_pdu(
             ctl=0, ttl=DEFAULT_TTL,
@@ -588,7 +600,8 @@ class LtechMeshManager:
             enc_key=self._encryption_key, priv_key=self._privacy_key,
             iv_index=self.iv_index,
             nid=self._nid,
-            app_key=self.app_key, akf=akf, aid=aid
+            app_key=app_key, akf=akf, aid=aid,
+            device_key=device_key
         )
         
         proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
@@ -597,10 +610,10 @@ class LtechMeshManager:
             await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
             _LOGGER.debug(f"[MESH] Sent PDU: {len(pdu)} bytes")
         
-        _LOGGER.debug(f"[MESH] Sent network PDU to 0x{destination:04X}: seq={seq}")
+        _LOGGER.info(f"[MESH] Sent network PDU to 0x{destination:04X}: seq={seq}, akf={akf}, pdu_len={len(network_pdu)}")
         return True
 
-    async def send_vendor_model_message(self, device_id: str, opcode: int, parameters: bytes, acknowledged: bool = False):
+    async def send_vendor_model_message(self, device_id: str, opcode: int, parameters: bytes, acknowledged: bool = False, akf: int = 0):
         if not self.connected or not self._data_in_char:
             _LOGGER.warning("[MESH] Not connected to Mesh network")
             return False
@@ -612,14 +625,23 @@ class LtechMeshManager:
                 return False
 
             vendor_payload = build_vendor_model_message(opcode, parameters)
-            result = await self._build_and_send_network_pdu(address, vendor_payload)
+            aid = self._app_aid or 0
+            
+            _LOGGER.info(f"[MESH] Sending vendor model: device={device_id}, addr=0x{address:04X}, opcode=0x{opcode:04X}, akf={akf}, aid={aid}, params_len={len(parameters)}")
+            _LOGGER.debug(f"[MESH] Vendor payload hex: {vendor_payload.hex()}")
+            
+            result = await self._build_and_send_network_pdu(address, vendor_payload, akf=akf, aid=aid)
             
             if result:
-                _LOGGER.info(f"[MESH] Sent vendor model to {device_id} (addr=0x{address:04X}): opcode=0x{opcode:02X}")
+                _LOGGER.info(f"[MESH] Sent vendor model to {device_id} (addr=0x{address:04X}): opcode=0x{opcode:04X}, akf={akf}")
+            else:
+                _LOGGER.error(f"[MESH] Failed to send vendor model to {device_id}")
             return result
             
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to send vendor model: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def send_device_control(self, device_id: str, control_data: str):
@@ -634,14 +656,19 @@ class LtechMeshManager:
                 return False
 
             parameters = hex_to_bytes(control_data)
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True)
+            # Vendor Model 消息使用 akf=0 (DeviceKey)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, acknowledged=True, akf=0)
             
             if result:
-                _LOGGER.info(f"[MESH] Sent control to {device_id} (addr=0x{address:04X})")
+                _LOGGER.info(f"[MESH] Sent control to {device_id} (addr=0x{address:04X}), data={control_data}")
+            else:
+                _LOGGER.error(f"[MESH] Failed to send control to {device_id}")
             return result
             
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to send device control: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def set_device_on(self, device_id: str, on: bool):
@@ -655,23 +682,31 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
+            _LOGGER.info(f"[MESH] Preparing to set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}")
+            _LOGGER.info(f"[MESH] Net key: {self.net_key.hex() if self.net_key else 'None'}")
+            _LOGGER.info(f"[MESH] App key: {self.app_key.hex() if self.app_key else 'None'}")
+            _LOGGER.info(f"[MESH] NID: 0x{self._nid:02X}, IV Index: {self.iv_index}")
+            _LOGGER.info(f"[MESH] Encryption key derived: {self._encryption_key is not None}")
+            
+            # 尝试标准 Generic OnOff 模型 (akf=1, 使用 AppKey)
+            _LOGGER.info(f"[MESH] Trying Generic OnOff {'ON' if on else 'OFF'} via standard model (akf=1)...")
+            generic_result = await self.send_generic_onoff(address, on)
+            
+            if generic_result:
+                _LOGGER.info(f"[MESH] Successfully set {device_id} via Generic OnOff model")
+                return True
+            
+            # 如果标准模型失败，回退到 Vendor Model (akf=0, 使用 DeviceKey)
+            _LOGGER.warning(f"[MESH] Generic OnOff failed, falling back to Vendor Model (akf=0)...")
             control_data = "66BB0000000001EB" if on else "66BB0000000000EB"
             parameters = hex_to_bytes(control_data)
             
-            _LOGGER.info(f"[MESH] Preparing to set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}")
-            _LOGGER.info(f"[MESH] Control data: {control_data} (hex), params={parameters.hex()}")
-            _LOGGER.info(f"[MESH] Net key: {self.net_key.hex() if self.net_key else 'None'}")
-            _LOGGER.info(f"[MESH] App key: {self.app_key.hex() if self.app_key else 'None'}")
-            _LOGGER.info(f"[MESH] NID: 0x{self._nid:02X} ({self._nid})")
-            _LOGGER.info(f"[MESH] IV Index: {self.iv_index}")
-            _LOGGER.info(f"[MESH] Encryption key derived: {self._encryption_key is not None}")
-            
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, akf=0)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) to {'ON' if on else 'OFF'}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} via Vendor Model (addr=0x{address:04X}), data={control_data}")
             else:
-                _LOGGER.error(f"[MESH] Failed to send control to {device_id} (addr=0x{address:04X})")
+                _LOGGER.error(f"[MESH] Both Generic OnOff and Vendor Model failed for {device_id}")
             return result
             
         except Exception as e:
@@ -691,18 +726,37 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
+            # 将亮度从 0-255 转换为 -32768-32767 (Generic Level)
+            # 或者直接使用 0-100 的百分比值
             brightness_percent = int((brightness / 255) * 100)
+            generic_level = int((brightness / 255) * 65535) - 32768  # 转换为有符号 16 位
+            
+            _LOGGER.info(f"[MESH] Trying Generic Level set for {device_id}, brightness={brightness}, level={generic_level}")
+            
+            # 尝试标准 Generic Level 模型 (akf=1, 使用 AppKey)
+            generic_result = await self.send_generic_level(address, generic_level)
+            
+            if generic_result:
+                _LOGGER.info(f"[MESH] Successfully set {device_id} brightness via Generic Level model")
+                return True
+            
+            # 如果标准模型失败，回退到 Vendor Model (akf=0, 使用 DeviceKey)
+            _LOGGER.warning(f"[MESH] Generic Level failed, falling back to Vendor Model (akf=0)...")
             control_data = f"66BB00000001{brightness_percent:02X}EB"
             parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, akf=0)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) brightness to {brightness}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} brightness via Vendor Model, data={control_data}")
+            else:
+                _LOGGER.error(f"[MESH] Both Generic Level and Vendor Model failed for {device_id} brightness")
             return result
             
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to set device brightness: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def set_device_color_temp(self, device_id: str, color_temp: int):
@@ -716,17 +770,24 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
+            _LOGGER.info(f"[MESH] Setting color temp for {device_id}, color_temp={color_temp}")
+            
+            # 先回退到 Vendor Model (akf=0, 使用 DeviceKey) - 因为色温没有标准的 HSL/CTL 模型直接支持
             control_data = f"66BB00000002{color_temp:04X}EB"
             parameters = hex_to_bytes(control_data)
             
-            result = await self.send_vendor_model_message(device_id, 0x01, parameters)
+            result = await self.send_vendor_model_message(device_id, 0x01, parameters, akf=0)
             
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} (addr=0x{address:04X}) color temp to {color_temp}, data={control_data}")
+                _LOGGER.info(f"[MESH] Set {device_id} color temp via Vendor Model, data={control_data}")
+            else:
+                _LOGGER.error(f"[MESH] Failed to set color temp for {device_id}")
             return result
             
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to set device color temp: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     def is_connected(self):
@@ -814,15 +875,21 @@ class LtechMeshManager:
 
     async def send_vendor_model(self, device_address: int, opcode: int,
                                 parameters: bytes = b"", app_key_index: int = 0) -> bool:
-        """Send Vendor Model message."""
+        """Send Vendor Model message (using DeviceKey, akf=0)."""
         if not self.connected or not self._data_in_char:
             _LOGGER.warning("[MESH] Not connected to Mesh network")
             return False
 
         try:
             vendor_payload = build_vendor_model_message(opcode, parameters)
-            access_pdu = build_access_message(device_address, 1, self._app_aid or 0, vendor_payload)
-
+            
+            # Vendor Model 使用 akf=0 (DeviceKey)
+            akf = 0
+            aid = 0  # Vendor Model 的 AID 为 0
+            
+            # 查找设备密钥
+            device_key = self.address_to_device_key.get(device_address)
+            
             async with self._seq_lock:
                 seq = self.seq_number
                 self.seq_number = (self.seq_number + 1) % (2**48)
@@ -830,19 +897,22 @@ class LtechMeshManager:
             network_pdu = build_network_pdu(
                 ctl=0, ttl=DEFAULT_TTL,
                 seq=seq, src=self._local_address, dst=device_address,
-                access_pdu=access_pdu,
+                access_pdu=vendor_payload,
                 enc_key=self._encryption_key, priv_key=self._privacy_key,
                 iv_index=self.iv_index,
                 nid=self._nid,
-                app_key=self.app_key, akf=1, aid=self._app_aid or 0
+                app_key=self.app_key, akf=akf, aid=aid,
+                device_key=device_key
             )
 
             proxy_pdus = segment_network_pdu(network_pdu, self.mtu)
             for pdu in proxy_pdus:
                 await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
 
-            _LOGGER.info(f"[MESH] Sent Vendor Model opcode=0x{opcode:04X} to 0x{device_address:04X}")
+            _LOGGER.info(f"[MESH] Sent Vendor Model opcode=0x{opcode:04X} to 0x{device_address:04X}, akf={akf}, has_device_key={device_key is not None}")
             return True
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to send Vendor Model: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False

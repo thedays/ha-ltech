@@ -128,15 +128,32 @@ def deobfuscate_network_pdu(network_pdu, privacy_key, iv_index):
 
 
 def build_network_pdu(ctl, ttl, seq, src, dst, access_pdu, enc_key, priv_key, iv_index,
-                      nid, app_key=None, akf=1, aid=0):
+                      nid, app_key=None, akf=1, aid=0, device_key=None):
     ctl_ttl = (ctl << 7) | (ttl & 0x7F)
     mac_len = 8 if ctl else 4
     dst_bytes = struct.pack(">H", dst)
     
-    if app_key is not None:
+    if app_key is not None or device_key is not None:
+        # 根据 akf 选择使用 AppKey 还是 DeviceKey
+        use_app_key = (akf == 1)
+        key_to_use = app_key if use_app_key else device_key
+        
+        if key_to_use is None:
+            # 如果所需密钥不可用，回退到另一个密钥
+            key_to_use = device_key if use_app_key else app_key
+            if key_to_use is not None:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Using fallback key: {'DeviceKey' if use_app_key else 'AppKey'} not available, "
+                    f"using {'AppKey' if use_app_key else 'DeviceKey'} instead"
+                )
+        
+        if key_to_use is None:
+            raise ValueError("No encryption key available for upper transport")
+        
         transport_pdu = encrypt_upper_transport(
-            access_pdu, app_key, iv_index, seq, src, dst,
-            use_app_key=(akf == 1), akf=akf, aid=aid
+            access_pdu, key_to_use, iv_index, seq, src, dst,
+            use_app_key=use_app_key, akf=akf, aid=aid
         )
     else:
         transport_pdu = access_pdu
