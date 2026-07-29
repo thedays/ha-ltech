@@ -554,8 +554,12 @@ class LtechDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.info(f"[MESH] Place info received: type={type(place_info).__name__}, keys={list(place_info.keys()) if isinstance(place_info, dict) else 'N/A'}")
             
             if place_info and isinstance(place_info, dict):
-                info = place_info.get("info", {})
-                _LOGGER.info(f"[MESH] Info type: {type(info).__name__}")
+                # API 返回格式: {"ret": 0, "data": {"info": {...}}}
+                # 需要先提取 data 字段，再提取 info 字段
+                place_data = place_info.get("data", place_info)
+                _LOGGER.info(f"[MESH] Place data type: {type(place_data).__name__}, keys={list(place_data.keys()) if isinstance(place_data, dict) else 'N/A'}")
+                info = place_data.get("info", {})
+                _LOGGER.info(f"[MESH] Info type: {type(info).__name__}, keys={list(info.keys()) if isinstance(info, dict) else 'N/A'}")
                 if isinstance(info, dict):
                     net_key = info.get("netkey")
                     app_key = info.get("applicationkey")

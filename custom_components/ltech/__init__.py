@@ -20,7 +20,7 @@ PLATFORMS = ["light", "switch", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    _LOGGER.info(f"[SETUP] Starting Ltech integration setup v2.4.8")
+    _LOGGER.info(f"[SETUP] Starting Ltech integration setup v2.4.9")
     _LOGGER.info(f"[SETUP] Entry data keys: {list(entry.data.keys())}")
     
     import json
