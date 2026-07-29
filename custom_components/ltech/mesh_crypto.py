@@ -4,7 +4,7 @@ from Crypto.Hash import CMAC
 
 
 LEITE_COMPANY_ID = 0x1121
-LEITE_VENDOR_MODEL_ID = 0x11111111
+LEITE_VENDOR_MODEL_ID = 0x1111
 
 
 def aes_cmac(key, data):
@@ -272,11 +272,26 @@ def decrypt_upper_transport(transport_pdu, key, iv_index, seq, src, dst, use_app
 
 
 def build_vendor_model_message(opcode, parameters, company_id=LEITE_COMPANY_ID):
+    """Build Vendor Model Access Message per Bluetooth Mesh spec.
+    
+    Format: CompanyID (2B LE) + VendorModelID (2B LE) + Opcode (3B) + Parameters
+    
+    For vendor model opcode (3 octets):
+    - First byte high 2 bits = 0xC0 (indicates 3-byte opcode)
+    - Remaining 6 bits + next 2 bytes = 14-bit opcode value
+    """
     message = bytearray()
+    # Company ID (2 octets, little-endian)
+    message.extend(struct.pack("<H", company_id))
+    # Vendor Model ID (2 octets, little-endian)
+    message.extend(struct.pack("<H", LEITE_VENDOR_MODEL_ID))
+    # Opcode (3 octets): 0xC0 | ((opcode >> 8) & 0x3F), then opcode & 0xFF
     message.append(0xC0 | ((opcode >> 8) & 0x3F))
     message.append(opcode & 0xFF)
-    message.extend(struct.pack("<H", company_id))
-    message.extend(struct.pack("<I", LEITE_VENDOR_MODEL_ID))
+    # Note: opcode is actually 3 bytes, but for values <= 0x3FFF, the third byte is always 0x00
+    # For simplicity and compatibility, we append the full opcode as 3 bytes
+    message.append((opcode >> 16) & 0xFF)
+    # Parameters
     if isinstance(parameters, int):
         message.append(parameters)
     elif isinstance(parameters, (bytes, bytearray)):
@@ -287,25 +302,41 @@ def build_vendor_model_message(opcode, parameters, company_id=LEITE_COMPANY_ID):
 
 
 def parse_vendor_model_message(data):
-    if len(data) < 2:
+    """Parse Vendor Model Access Message per Bluetooth Mesh spec.
+    
+    Expected format: CompanyID (2B LE) + VendorModelID (2B LE) + Opcode (3B) + Parameters
+    """
+    if len(data) < 7:  # Minimum: 2 + 2 + 3 = 7 bytes
         return None
-    first_byte = data[0]
-    if (first_byte & 0xC0) != 0xC0:
-        return None
-    opcode_high = first_byte & 0x3F
-    opcode_low = data[1]
-    opcode = (opcode_high << 8) | opcode_low
-    result = {"opcode": opcode}
-    if len(data) >= 4:
-        result["company_id"] = struct.unpack("<H", data[2:4])[0]
-    if len(data) >= 8:
-        result["vendor_model_id"] = struct.unpack("<I", data[4:8])[0]
-        result["parameters"] = data[8:]
-    elif len(data) >= 6:
-        result["vendor_model_id"] = struct.unpack("<H", data[4:6])[0]
-        result["parameters"] = data[6:]
+    
+    # Company ID (2 octets, little-endian)
+    company_id = struct.unpack("<H", data[0:2])[0]
+    
+    # Vendor Model ID (2 octets, little-endian)
+    vendor_model_id = struct.unpack("<H", data[2:4])[0]
+    
+    # Opcode (3 octets)
+    opcode_first = data[4]
+    if (opcode_first & 0xC0) != 0xC0:
+        return None  # Not a valid vendor model opcode
+    
+    opcode_high = opcode_first & 0x3F
+    opcode_mid = data[5]
+    opcode_low = data[6]
+    opcode = (opcode_high << 16) | (opcode_mid << 8) | opcode_low
+    
+    result = {
+        "company_id": company_id,
+        "vendor_model_id": vendor_model_id,
+        "opcode": opcode,
+    }
+    
+    # Parameters (remaining bytes)
+    if len(data) > 7:
+        result["parameters"] = data[7:]
     else:
         result["parameters"] = b""
+    
     return result
 
 

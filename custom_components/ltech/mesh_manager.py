@@ -449,12 +449,22 @@ class LtechMeshManager:
         return None
 
     def _parse_access_payload(self, payload):
+        """Parse Access Message payload per Bluetooth Mesh spec.
+        
+        Opcode length determination based on first byte high 2 bits:
+        - 00: 1-byte opcode
+        - 01: 2-byte opcode
+        - 10: 3-byte opcode (standard models)
+        - 11: 3-byte opcode (vendor models)
+        """
         if len(payload) < 2:
             return None
         
         first_byte = payload[0]
+        opcode_type = (first_byte & 0xC0) >> 6  # Get high 2 bits
         
-        if (first_byte & 0xC0) == 0xC0:
+        # Vendor model messages (3-byte, high 2 bits = 11)
+        if opcode_type == 3:  # 11
             vendor_parsed = parse_vendor_model_message(payload)
             if vendor_parsed:
                 result = {
@@ -472,47 +482,45 @@ class LtechMeshManager:
                 return result
             return {"type": "unknown_vendor", "raw": payload.hex()}
         
-        if (first_byte & 0x80) == 0x80:
+        # Standard model messages
+        if opcode_type == 2:  # 10 - 3-byte opcode
+            if len(payload) < 4:
+                return None
+            opcode = (first_byte << 16) | (payload[1] << 8) | payload[2]
+            params = payload[3:]
+        elif opcode_type == 1:  # 01 - 2-byte opcode
             if len(payload) < 3:
                 return None
             opcode = (first_byte << 8) | payload[1]
             params = payload[2:]
-            result = {"opcode": opcode, "params": params.hex()}
-            
-            if opcode == 0x8411:
-                result["type"] = "generic_onoff_status"
-                result["on"] = params[0] == 1 if len(params) >= 1 else None
-            elif opcode == 0x8410:
-                result["type"] = "generic_onoff_get"
-            elif opcode == 0x8211:
-                result["type"] = "generic_onoff_set"
-                result["on"] = params[0] == 1 if len(params) >= 1 else None
-            elif opcode == 0x8405:
-                result["type"] = "generic_level_status"
-                result["level"] = int.from_bytes(params[:2], "big", signed=True) if len(params) >= 2 else None
-            elif opcode == 0x8205:
-                result["type"] = "generic_level_set"
-                result["level"] = int.from_bytes(params[:2], "big", signed=True) if len(params) >= 2 else None
-            elif opcode == 0x8406:
-                result["type"] = "generic_level_get"
-            elif opcode == 0x8202:
-                result["type"] = "generic_default_set"
-            elif opcode == 0x8402:
-                result["type"] = "generic_default_status"
-            elif opcode == 0x8408:
-                result["type"] = "generic_power_onoff_status"
-                result["state"] = params[0] if len(params) >= 1 else None
-            
-            return result
+        else:  # 00 - 1-byte opcode
+            opcode = first_byte
+            params = payload[1:]
         
-        opcode = first_byte
-        params = payload[1:]
         result = {"opcode": opcode, "params": params.hex()}
         
-        if opcode == 0x02:
+        # Common standard model opcodes
+        if opcode == 0x8202:  # Generic OnOff Status
+            result["type"] = "generic_onoff_status"
+            result["on"] = params[0] == 1 if len(params) >= 1 else None
+        elif opcode == 0x8201:  # Generic OnOff Set
+            result["type"] = "generic_onoff_set"
+            result["on"] = params[1] == 1 if len(params) >= 2 else None  # params[0]=TID, params[1]=OnOff
+        elif opcode == 0x8200:  # Generic OnOff Get
             result["type"] = "generic_onoff_get"
-        elif opcode == 0x03:
+        elif opcode == 0x8402:  # Generic Level Status
+            result["type"] = "generic_level_status"
+            result["level"] = int.from_bytes(params[:2], "big", signed=True) if len(params) >= 2 else None
+        elif opcode == 0x8401:  # Generic Level Set
+            result["type"] = "generic_level_set"
+            result["level"] = int.from_bytes(params[1:3], "big", signed=True) if len(params) >= 3 else None  # params[0]=TID
+        elif opcode == 0x8400:  # Generic Level Get
             result["type"] = "generic_level_get"
+        elif opcode == 0x8405:  # Generic Default Status
+            result["type"] = "generic_default_status"
+        elif opcode == 0x8408:  # Generic Power OnOff Status
+            result["type"] = "generic_power_onoff_status"
+            result["state"] = params[0] if len(params) >= 1 else None
         
         return result
 
@@ -803,14 +811,26 @@ class LtechMeshManager:
         return self._nid
 
     async def send_generic_onoff(self, device_address: int, on: bool) -> bool:
-        """Send Generic OnOff Set message (standard Mesh model)."""
+        """Send Generic OnOff Set message (standard Mesh model, akf=1).
+        
+        Format: [Opcode(2B)] [TID(1B)] [OnOff(1B)]
+        Opcode: 0x8201 (Generic OnOff Set)
+        """
         if not self.connected or not self._data_in_char:
             _LOGGER.warning("[MESH] Not connected to Mesh network")
             return False
 
         try:
-            # Generic OnOff Set: opcode 0x82, params=[on]
-            access_payload = bytes([0x82, 0x01 if on else 0x00])
+            # Generic OnOff Set: opcode 0x8201
+            # TID is incremented for each set command to prevent duplicate processing
+            self._tid = (getattr(self, '_tid', 0) + 1) & 0xFF
+            onoff_value = 0x01 if on else 0x00
+            
+            # Build Access Payload: [opcode_hi, opcode_lo, TID, OnOff]
+            access_payload = bytes([0x82, 0x01, self._tid, onoff_value])
+            
+            _LOGGER.info(f"[MESH] Generic OnOff payload: {access_payload.hex()} (ON={on}, TID={self._tid})")
+            
             access_pdu = build_access_message(device_address, 1, self._app_aid or 0, access_payload)
 
             async with self._seq_lock:
@@ -831,22 +851,35 @@ class LtechMeshManager:
             for pdu in proxy_pdus:
                 await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
 
-            _LOGGER.info(f"[MESH] Sent Generic OnOff {'ON' if on else 'OFF'} to 0x{device_address:04X}")
+            _LOGGER.info(f"[MESH] Sent Generic OnOff {'ON' if on else 'OFF'} to 0x{device_address:04X} (TID={self._tid})")
             return True
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to send Generic OnOff: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def send_generic_level(self, device_address: int, level: int) -> bool:
-        """Send Generic Level Set message (standard Mesh model)."""
+        """Send Generic Level Set message (standard Mesh model, akf=1).
+        
+        Format: [Opcode(2B)] [TID(1B)] [Level(2B signed BE)]
+        Opcode: 0x8401 (Generic Level Set)
+        """
         if not self.connected or not self._data_in_char:
             _LOGGER.warning("[MESH] Not connected to Mesh network")
             return False
 
         try:
-            # Generic Level Set: opcode 0x84, params=[level(2, signed BE)]
+            # Generic Level Set: opcode 0x8401
+            # TID is incremented for each set command to prevent duplicate processing
+            self._tid = (getattr(self, '_tid', 0) + 1) & 0xFF
             level_clamped = max(-32768, min(32767, level))
-            access_payload = bytes([0x84]) + struct.pack(">h", level_clamped)
+            
+            # Build Access Payload: [opcode_hi, opcode_lo, TID, Level(2B signed BE)]
+            access_payload = bytes([0x84, 0x01, self._tid]) + struct.pack(">h", level_clamped)
+            
+            _LOGGER.info(f"[MESH] Generic Level payload: {access_payload.hex()} (level={level}, TID={self._tid})")
+            
             access_pdu = build_access_message(device_address, 1, self._app_aid or 0, access_payload)
 
             async with self._seq_lock:
@@ -867,10 +900,12 @@ class LtechMeshManager:
             for pdu in proxy_pdus:
                 await self.client.write_gatt_char(self._data_in_char, pdu, response=False)
 
-            _LOGGER.info(f"[MESH] Sent Generic Level {level} to 0x{device_address:04X}")
+            _LOGGER.info(f"[MESH] Sent Generic Level {level} to 0x{device_address:04X} (TID={self._tid})")
             return True
         except Exception as e:
             _LOGGER.error(f"[MESH] Failed to send Generic Level: {e}")
+            import traceback
+            _LOGGER.error(f"[MESH] Traceback: {traceback.format_exc()}")
             return False
 
     async def send_vendor_model(self, device_address: int, opcode: int,
