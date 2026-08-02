@@ -33,6 +33,11 @@ async def async_setup_entry(
     
     entities = []
     for device in lights:
+        product_name = device.get("productname", "N/A")
+        product_type = device.get("producttype", device.get("producttypename", "N/A"))
+        product_id = device.get("productId", device.get("productid", "N/A"))
+        dev_id = device.get("deviceid", device.get("deviceId", "N/A"))
+        _LOGGER.info(f"[LIGHT_SETUP] device_id={dev_id}, productname={product_name}, producttype={product_type}, productId={product_id}")
         entities.append(LtechLight(coordinator, device))
     
     _LOGGER.info(f"Adding {len(entities)} light entities")
@@ -169,6 +174,7 @@ class LtechLight(LtechEntity, LightEntity):
             
             _LOGGER.info(f"[LIGHT_CONTROL] Turning ON light {self.device_id} ({self.device_name}), platform_device_id={platform_device_id}, brightness={brightness}, color_temp={color_temp_kelvin}")
             _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
+            _LOGGER.info(f"[LIGHT_CONTROL] productname={self.device.get('productname', 'N/A')}, producttype={self.device.get('producttype', 'N/A')}, productId={self.device.get('productId', self.device.get('productid', 'N/A'))}, supported_color_modes={self.supported_color_modes}, color_mode={self.color_mode}")
             
             mesh_success = False
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:

@@ -964,22 +964,29 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
-            _LOGGER.info(f"[MESH] Setting color temp for {device_id}, color_temp={color_temp}")
+            _LOGGER.info(f"[MESH] Setting color temp for {device_id}, color_temp(mired)={color_temp}")
 
-            # Vendor Model Color Temp (opcode=0xC6) using AppKey (akf=1).
-            # Verified from Ltech APP observed network traffic:
-            #   c611110001d6ff = zone1 color_temp=0xd6ff (LE) = 0xffd6 = 65494 mired
-            #   format: [opcode 0xC6][company_id 0x1111 LE][zone_hi][zone_lo][temp_lo][temp_hi]
-            # 16-bit BE zone bitmask + 16-bit LE color temp value.
+            # Vendor Model Color Temp (opcode=0xC2) using AppKey (akf=1).
+            # VERIFIED: device responds to 0xC2 with status reports showing Y value changes.
+            # 0xC6 was WRONG - it turned the light OFF (mode switch command, not color temp).
+            #   ActCtLight.java: ctK2Y_var = 255 - LightUtils.ctK2Y(k, kMax, kMin)
+            #   sendCW(c2) sends c2 = ctK2Y_var = ((k-kMin)/(kMax-kMin))*255
+            #   Y=0 -> warmest(kMin=2700K), Y=255 -> coldest(kMax=6500K)
+            # Format: [opcode 0xC2][company_id 0x1111 LE][zone_hi][zone_lo][Y_value]
             zone_bitmask = 0x01  # zone 1
-            # color_temp is in mired (HA standard). Ltech uses 16-bit LE mired value.
-            color_temp_clamped = max(0, min(0xFFFF, int(color_temp)))
-            parameters = struct.pack(">H", zone_bitmask) + struct.pack("<H", color_temp_clamped)
+            kelvin = 1000000 // color_temp if color_temp > 0 else 6500
+            k_min = 2700
+            k_max = 6500
+            y_value = int(round(((kelvin - k_min) / (k_max - k_min)) * 255))
+            y_value = max(0, min(255, y_value))
+            parameters = struct.pack(">H", zone_bitmask) + bytes([y_value])
 
-            result = await self.send_vendor_model_message(device_id, 0xC6, parameters, akf=1)
+            _LOGGER.info(f"[MESH] Color temp: mired={color_temp}, kelvin={kelvin}, Y={y_value}, params={parameters.hex()}")
+
+            result = await self.send_vendor_model_message(device_id, 0xC2, parameters, akf=1)
 
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} color temp via Vendor Model, mired={color_temp_clamped}")
+                _LOGGER.info(f"[MESH] Set {device_id} color temp via Vendor Model, Y={y_value}")
             else:
                 _LOGGER.error(f"[MESH] Failed to set color temp for {device_id}")
             return result
