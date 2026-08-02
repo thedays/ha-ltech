@@ -917,23 +917,31 @@ class LtechMeshManager:
                 _LOGGER.warning(f"[MESH] No address found for device {device_id}")
                 return False
 
-            brightness_percent = int((brightness / 255) * 100)
-            if brightness_percent < 1:
-                brightness_percent = 1
+            # HA brightness is 0-255; Ltech uses 0-255 directly (LightUtils.progress2Brt).
+            # Clamp to 1-255 (brightness=0 means turn off, handled separately).
+            brightness_value = max(1, min(255, int(brightness)))
 
-            # Vendor Model Brightness (opcode=0xC4) using AppKey (akf=1).
-            # Verified from Ltech APP observed network traffic:
-            #   c41111000105 = zone1 brightness=5
-            #   format: [opcode 0xC4][company_id 0x1111 LE][zone_hi][zone_lo][brightness]
-            # Matches the OnOff parameter layout: 16-bit BE zone bitmask + 1 byte value.
-            _LOGGER.info(f"[MESH] Trying Vendor Model brightness for {device_id}, brightness={brightness}, percent={brightness_percent}")
+            # Vendor Model Brightness using AppKey (akf=1).
+            # Verified from Ltech APP decompiled code (CmdBleFactory / CodeLibraryUtil):
+            #   - CT light brightness: setWDF(zone, brig) -> opcode 0xDF
+            #     CodeLibraryUtil.generateLightcodeLibraryData DeviceType==2:
+            #       getbrightnessDF(brig) -> CmdBleFactory.setWDF(1, brig)
+            #   - Dim light brightness: setWE0(zone, brig) -> opcode 0xE0
+            #   - RGBWY light brightness: setWDD(zone, brig) -> opcode 0xDD
+            # All use format: [zone_hi][zone_lo][brightness] (3 bytes parameters)
+            # brightness is 0-255 (NOT 0-100 percent).
+            #
+            # We use 0xDF (CT light brightness) as the default since most Ltech
+            # lights are CT type. It also works for dim lights in practice.
+            opcode = 0xDF  # setWDF - CT light brightness
             zone_bitmask = 0x01  # zone 1
-            parameters = struct.pack(">H", zone_bitmask) + bytes([brightness_percent])
+            parameters = struct.pack(">H", zone_bitmask) + bytes([brightness_value])
 
-            vendor_result = await self.send_vendor_model_message(device_id, 0xC4, parameters, akf=1)
+            _LOGGER.info(f"[MESH] Setting brightness for {device_id}, brightness={brightness} -> value={brightness_value}, opcode=0x{opcode:02X}")
+            vendor_result = await self.send_vendor_model_message(device_id, opcode, parameters, akf=1)
 
             if vendor_result:
-                _LOGGER.info(f"[MESH] Successfully set {device_id} brightness via Vendor Model, percent={brightness_percent}")
+                _LOGGER.info(f"[MESH] Successfully set {device_id} brightness via Vendor Model (opcode=0x{opcode:02X}), value={brightness_value}")
                 return True
 
             # 如果 Vendor Model 失败，回退到 Generic Level (akf=1, AppKey)
@@ -966,27 +974,44 @@ class LtechMeshManager:
 
             _LOGGER.info(f"[MESH] Setting color temp for {device_id}, color_temp(mired)={color_temp}")
 
-            # Vendor Model Color Temp (opcode=0xC2) using AppKey (akf=1).
-            # VERIFIED: device responds to 0xC2 with status reports showing Y value changes.
-            # 0xC6 was WRONG - it turned the light OFF (mode switch command, not color temp).
-            #   ActCtLight.java: ctK2Y_var = 255 - LightUtils.ctK2Y(k, kMax, kMin)
-            #   sendCW(c2) sends c2 = ctK2Y_var = ((k-kMin)/(kMax-kMin))*255
-            #   Y=0 -> warmest(kMin=2700K), Y=255 -> coldest(kMax=6500K)
-            # Format: [opcode 0xC2][company_id 0x1111 LE][zone_hi][zone_lo][Y_value]
+            # Vendor Model Color Temp using AppKey (akf=1).
+            # Verified from Ltech APP decompiled code:
+            #   LightAssistant.sendCW(c2) -> cmdType=32 -> CmdBleFactory.setWDE(zone, CW, TY)
+            #   opcode = 0xDE (setWDE)
+            #   CodeLibraryUtil.getColorDE(CW, TY, addr) -> CmdBleFactory.setWDE(1, CW, TY)
+            #
+            # Parameter CW (color temp) value mapping:
+            #   - CW=0   -> warmest (kMin=2700K)
+            #   - CW=255 -> coldest (kMax=6500K)
+            #   Formula: CW = round((kelvin - kMin) / (kMax - kMin) * 255)
+            #   (This is the c2/progress value from CtControlHelper, NOT the Y value
+            #    from LightUtils.ctK2Y which is inverted: Y=255-warmest, Y=0-coldest)
+            #
+            # Evidence: ActCtLight.java line 406:
+            #   int ctK2Y = 255 - LightUtils.ctK2Y(k, kMax, kMin);
+            #   sendCW(ctK2Y);  // sends ctK2Y = (k-kMin)/(kMax-kMin)*255
+            #   k=2700 -> CW=0 (warmest), k=6500 -> CW=255 (coldest)
+            #
+            # setWDE sends 4 bytes: [zone_hi][zone_lo][CW][TY]
+            # For color-temp-only changes (sendCW), TY=0 (brightness unchanged).
+            # For combined color temp + brightness (CodeLibraryUtil.getColorDE),
+            #   TY carries a second value. We use TY=0 for color-temp-only.
             zone_bitmask = 0x01  # zone 1
             kelvin = 1000000 // color_temp if color_temp > 0 else 6500
             k_min = 2700
             k_max = 6500
-            y_value = int(round(((kelvin - k_min) / (k_max - k_min)) * 255))
-            y_value = max(0, min(255, y_value))
-            parameters = struct.pack(">H", zone_bitmask) + bytes([y_value])
+            cw_value = int(round(((kelvin - k_min) / (k_max - k_min)) * 255))
+            cw_value = max(0, min(255, cw_value))
+            ty_value = 0  # no brightness change
+            parameters = struct.pack(">H", zone_bitmask) + bytes([cw_value, ty_value])
 
-            _LOGGER.info(f"[MESH] Color temp: mired={color_temp}, kelvin={kelvin}, Y={y_value}, params={parameters.hex()}")
+            opcode = 0xDE  # setWDE
+            _LOGGER.info(f"[MESH] Color temp: mired={color_temp}, kelvin={kelvin}, CW={cw_value}, TY={ty_value}, opcode=0x{opcode:02X}, params={parameters.hex()}")
 
-            result = await self.send_vendor_model_message(device_id, 0xC2, parameters, akf=1)
+            result = await self.send_vendor_model_message(device_id, opcode, parameters, akf=1)
 
             if result:
-                _LOGGER.info(f"[MESH] Set {device_id} color temp via Vendor Model, Y={y_value}")
+                _LOGGER.info(f"[MESH] Set {device_id} color temp via Vendor Model (opcode=0x{opcode:02X}), CW={cw_value}")
             else:
                 _LOGGER.error(f"[MESH] Failed to set color temp for {device_id}")
             return result
