@@ -393,7 +393,9 @@ class LtechApiClient:
             action["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
         
         if color_temp is not None:
-            temp_hex = f"{color_temp:04X}"
+            # color_temp is in Kelvin (e.g. 2700, 6500), convert to mireds for 66BB protocol
+            temp_mired = 1000000 // color_temp
+            temp_hex = f"{temp_mired:04X}"
             action["CharTemp"] = f"66BB00000002{temp_hex}EB"
         
         return self.control_device(device_id, action, platform_device_id)

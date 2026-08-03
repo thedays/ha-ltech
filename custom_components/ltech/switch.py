@@ -434,6 +434,8 @@ class LtechSwitch(LtechEntity, SwitchEntity):
                 status_byte |= bit
             else:
                 status_byte &= ~bit & 0xFF
-            self.coordinator.device_states[self.device_id] = {"reportinstruct_status_byte": status_byte}
+            # Merge with existing device_states to preserve other fields (e.g. is_on, CharSwitch)
+            current_state["reportinstruct_status_byte"] = status_byte
+            self.coordinator.device_states[self.device_id] = current_state
         else:
             self.coordinator.device_states[self.device_id] = {"is_on": on}

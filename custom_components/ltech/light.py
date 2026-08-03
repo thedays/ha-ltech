@@ -176,65 +176,101 @@ class LtechLight(LtechEntity, LightEntity):
             _LOGGER.info(f"[LIGHT_CONTROL] mesh_enabled={self.coordinator.mesh_enabled}, mqtt_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else False}")
             _LOGGER.info(f"[LIGHT_CONTROL] productname={self.device.get('productname', 'N/A')}, producttype={self.device.get('producttype', 'N/A')}, productId={self.device.get('productId', self.device.get('productid', 'N/A'))}, supported_color_modes={self.supported_color_modes}, color_mode={self.color_mode}")
             
-            mesh_success = False
+            # Track individual Mesh command results for granular fallback.
+            # Mesh on (0xC7) may succeed while brightness (0xDF) / color_temp (0xDE)
+            # fail — each must be retried via API/MQTT independently.
+            mesh_on_success = False
+            mesh_brightness_success = False
+            mesh_temp_success = False
+
             if self.coordinator.mesh_enabled and self.coordinator.mesh_manager:
                 _LOGGER.info(f"[LIGHT_CONTROL] Attempting Mesh control for {self.device_id}")
-                mesh_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
-                _LOGGER.info(f"[LIGHT_CONTROL] Mesh on result: {mesh_success}")
+                mesh_on_success = await self.coordinator.control_device_via_mesh(self.device_id, "on", True)
+                _LOGGER.info(f"[LIGHT_CONTROL] Mesh on result: {mesh_on_success}")
                 if brightness is not None:
-                    bright_result = await self.coordinator.control_device_via_mesh(self.device_id, "brightness", brightness)
-                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh brightness result: {bright_result}")
+                    mesh_brightness_success = await self.coordinator.control_device_via_mesh(self.device_id, "brightness", brightness)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh brightness result: {mesh_brightness_success}")
                 if color_temp_kelvin is not None:
                     color_temp_mired = 1000000 // color_temp_kelvin
-                    temp_result = await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
-                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh color_temp result: {temp_result}")
+                    mesh_temp_success = await self.coordinator.control_device_via_mesh(self.device_id, "color_temp", color_temp_mired)
+                    _LOGGER.info(f"[LIGHT_CONTROL] Mesh color_temp result: {mesh_temp_success}")
             else:
                 _LOGGER.info(f"[LIGHT_CONTROL] Mesh not enabled, will use cloud fallback")
-            
-            if not mesh_success:
-                _LOGGER.info(f"[LIGHT_CONTROL] Attempting API control for {self.device_id}")
-                try:
-                    api_result = await self.hass.async_add_executor_job(
-                        self.coordinator.api.control_light,
-                        self.device_id,
-                        True,
-                        brightness,
-                        color_temp_kelvin,
-                        platform_device_id,
-                    )
-                    _LOGGER.info(f"[LIGHT_CONTROL] API control result: {api_result}")
-                except Exception as api_error:
-                    _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
-                    import traceback
-                    _LOGGER.error(f"[MQTT_CONTROL] API error traceback: {traceback.format_exc()}")
-                
-                mqtt_success = False
-                _LOGGER.info(f"[LIGHT_CONTROL] mqtt_client={self.coordinator.mqtt_client is not None}, is_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else 'N/A'}")
-                if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
-                    mqtt_data = {
-                        "deviceid": int(self.device_id),
-                        "CharSwitch": "66BB0000000001EB"
-                    }
-                    if brightness is not None:
-                        brightness_hex = f"{int((brightness / 255) * 100):02X}"
-                        mqtt_data["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
-                    if color_temp_kelvin is not None:
-                        color_temp_mired = 1000000 // color_temp_kelvin
-                        temp_hex = f"{color_temp_mired:04X}"
-                        mqtt_data["CharTemp"] = f"66BB00000002{temp_hex}EB"
-                    if platform_device_id:
-                        mqtt_data["platformdeviceid"] = platform_device_id
-                    
-                    mqtt_payload = json.dumps(mqtt_data)
-                    _LOGGER.info(f"[LIGHT_CONTROL] Sending MQTT control: {mqtt_payload}")
-                    mqtt_success = await self.hass.async_add_executor_job(
-                        self.coordinator.control_device_via_mqtt,
-                        self.device_id,
-                        mqtt_payload
-                    )
-                    _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control: {mqtt_success}, payload: {mqtt_payload}")
+
+            # Determine which commands need API/MQTT fallback
+            need_on_fallback = not mesh_on_success
+            need_brightness_fallback = brightness is not None and not mesh_brightness_success
+            need_temp_fallback = color_temp_kelvin is not None and not mesh_temp_success
+
+            if need_on_fallback or need_brightness_fallback or need_temp_fallback:
+                # Build API params from what Mesh didn't handle
+                api_brightness = brightness if need_brightness_fallback else None
+                api_color_temp = color_temp_kelvin if need_temp_fallback else None
+
+                _LOGGER.info(f"[LIGHT_CONTROL] Fallback needed: on={need_on_fallback}, brightness={need_brightness_fallback}, color_temp={need_temp_fallback}")
+
+                # Try API control for all unhandled commands
+                if need_on_fallback:
+                    try:
+                        api_result = await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_light,
+                            self.device_id,
+                            True,
+                            api_brightness,
+                            api_color_temp,
+                            platform_device_id,
+                        )
+                        _LOGGER.info(f"[LIGHT_CONTROL] API control result: {api_result}")
+                        # If API succeeded, mark fallback as handled
+                        need_on_fallback = False
+                        need_brightness_fallback = False
+                        need_temp_fallback = False
+                    except Exception as api_error:
+                        _LOGGER.warning(f"[MQTT_CONTROL] API control failed, continuing with MQTT: {api_error}")
+                        import traceback
+                        _LOGGER.error(f"[MQTT_CONTROL] API error traceback: {traceback.format_exc()}")
                 else:
-                    _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
+                    # Send only brightness/color_temp via API (on already handled by Mesh)
+                    try:
+                        api_result = await self.hass.async_add_executor_job(
+                            self.coordinator.api.control_light,
+                            self.device_id,
+                            True,
+                            api_brightness,
+                            api_color_temp,
+                            platform_device_id,
+                        )
+                        _LOGGER.info(f"[LIGHT_CONTROL] API partial control result: {api_result}")
+                    except Exception as api_error:
+                        _LOGGER.warning(f"[MQTT_CONTROL] API partial control failed: {api_error}")
+                
+                # MQTT fallback for any remaining unhandled commands
+                if need_on_fallback or need_brightness_fallback or need_temp_fallback:
+                    _LOGGER.info(f"[LIGHT_CONTROL] mqtt_client={self.coordinator.mqtt_client is not None}, is_connected={self.coordinator.mqtt_client.is_connected() if self.coordinator.mqtt_client else 'N/A'}")
+                    if self.coordinator.mqtt_client and self.coordinator.mqtt_client.is_connected():
+                        mqtt_data = {"deviceid": int(self.device_id)}
+                        if need_on_fallback:
+                            mqtt_data["CharSwitch"] = "66BB0000000001EB"
+                        if need_brightness_fallback:
+                            brightness_hex = f"{int((brightness / 255) * 100):02X}"
+                            mqtt_data["CharBrightness"] = f"66BB00000001{brightness_hex}EB"
+                        if need_temp_fallback:
+                            color_temp_mired = 1000000 // color_temp_kelvin
+                            temp_hex = f"{color_temp_mired:04X}"
+                            mqtt_data["CharTemp"] = f"66BB00000002{temp_hex}EB"
+                        if platform_device_id:
+                            mqtt_data["platformdeviceid"] = platform_device_id
+                        
+                        mqtt_payload = json.dumps(mqtt_data)
+                        _LOGGER.info(f"[LIGHT_CONTROL] Sending MQTT control: {mqtt_payload}")
+                        mqtt_success = await self.hass.async_add_executor_job(
+                            self.coordinator.control_device_via_mqtt,
+                            self.device_id,
+                            mqtt_payload
+                        )
+                        _LOGGER.info(f"[MQTT_CONTROL] Light {self.device_id} MQTT control: {mqtt_success}, payload: {mqtt_payload}")
+                    else:
+                        _LOGGER.warning(f"[MQTT_CONTROL] MQTT client not connected, cannot send control command")
             
             _LOGGER.info(f"[LIGHT_CONTROL] Updating state for {self.device_id}: is_on=True")
             self.coordinator.device_states[self.device_id] = {"is_on": True}
