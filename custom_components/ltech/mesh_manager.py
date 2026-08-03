@@ -980,29 +980,27 @@ class LtechMeshManager:
             #   opcode = 0xDE (setWDE)
             #   CodeLibraryUtil.getColorDE(CW, TY, addr) -> CmdBleFactory.setWDE(1, CW, TY)
             #
-            # Parameter CW (color temp) value mapping:
-            #   - CW=0   -> warmest (kMin=2700K)
-            #   - CW=255 -> coldest (kMax=6500K)
-            #   Formula: CW = round((kelvin - kMin) / (kMax - kMin) * 255)
-            #   (This is the c2/progress value from CtControlHelper, NOT the Y value
-            #    from LightUtils.ctK2Y which is inverted: Y=255-warmest, Y=0-coldest)
+            # Parameter CW/TY (warm/cold channel) value mapping:
+            #   - getColorDE(255, 0) = warmest  (CW=255=warm full, TY=0=cold off)
+            #   - getColorDE(0, 255) = coldest  (CW=0=warm off, TY=255=cold full)
+            #   So CW = warm channel, TY = cold channel, CW + TY = 255 for constant brightness
             #
-            # Evidence: ActCtLight.java line 406:
-            #   int ctK2Y = 255 - LightUtils.ctK2Y(k, kMax, kMin);
-            #   sendCW(ctK2Y);  // sends ctK2Y = (k-kMin)/(kMax-kMin)*255
-            #   k=2700 -> CW=0 (warmest), k=6500 -> CW=255 (coldest)
+            # Evidence from CodeLibraryUtil.generateLightcodeLibraryData(DeviceType==2):
+            #   codeLibraryBean.m610set(getColorDE(255, 0, address));  // warmest
+            #   codeLibraryBean.m616set(getColorDE(0, 255, address));  // coldest
             #
             # setWDE sends 4 bytes: [zone_hi][zone_lo][CW][TY]
-            # For color-temp-only changes (sendCW), TY=0 (brightness unchanged).
-            # For combined color temp + brightness (CodeLibraryUtil.getColorDE),
-            #   TY carries a second value. We use TY=0 for color-temp-only.
+            # CW = warm channel (0-255), TY = cold channel (0-255)
+            # CW + TY = 255 maintains brightness when changing only color temp.
             zone_bitmask = 0x01  # zone 1
             kelvin = 1000000 // color_temp if color_temp > 0 else 6500
             k_min = 2700
             k_max = 6500
-            cw_value = int(round(((kelvin - k_min) / (k_max - k_min)) * 255))
+            # CW = warm channel: 2700K(warm) -> CW=255, 6500K(cold) -> CW=0
+            cw_value = int(round(((k_max - kelvin) / (k_max - k_min)) * 255))
             cw_value = max(0, min(255, cw_value))
-            ty_value = 0  # no brightness change
+            # TY = cold channel: keep CW + TY = 255 to maintain brightness
+            ty_value = 255 - cw_value
             parameters = struct.pack(">H", zone_bitmask) + bytes([cw_value, ty_value])
 
             opcode = 0xDE  # setWDE
