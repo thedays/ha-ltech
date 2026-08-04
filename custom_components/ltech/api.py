@@ -158,7 +158,7 @@ class LtechApiClient:
                     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
                     ssl_context.check_hostname = False
                     ssl_context.verify_mode = ssl.CERT_NONE
-                    ssl_sock = ssl_context.wrap_socket(sock)
+                    ssl_sock = ssl_context.wrap_socket(sock, server_hostname="apic.ltsys.com.cn")
                     
                     request_line = f"POST /openapi/rest HTTP/1.1\r\n"
                     headers_str = "\r\n".join(f"{k}: {v}" for k, v in headers.items())
@@ -182,7 +182,21 @@ class LtechApiClient:
                     
                     response_str = response_data.decode("utf-8")
                     _LOGGER.debug(f"[API_RESPONSE] full_response={response_str[:500]}")
-                    
+
+                    # Parse HTTP status code from response
+                    http_status = 0
+                    if response_str.startswith("HTTP/1."):
+                        try:
+                            status_part = response_str.split(" ", 2)
+                            http_status = int(status_part[1])
+                        except (IndexError, ValueError):
+                            pass
+
+                    if http_status and http_status != 200:
+                        _LOGGER.error(f"[API_HTTP_ERROR] method={method}, HTTP status={http_status}, response={response_str[:300]}")
+                        if http_status == 403:
+                            raise LtechApiError(f"API server rejected request (HTTP 403): server may be blocking this IP")
+
                     if "\r\n\r\n" in response_str:
                         body_start = response_str.find("\r\n\r\n") + 4
                         body_str = response_str[body_start:]
