@@ -30,6 +30,7 @@ from .const import (
     REST_URL,
     SECRET_KEY_DEFAULT,
     SESSION_DEFAULT,
+    TEST_SERVER_URL,
 )
 
 
@@ -67,6 +68,22 @@ class LtechApiClient:
         encrypted = cipher.encrypt(padded_data)
         b64 = base64.b64encode(encrypted).decode("utf-8")
         return b64.replace('+', '-').replace('/', '_').rstrip('=')
+
+    @staticmethod
+    def _parse_server_url(server_url):
+        """Parse host and port from server_url (e.g. https://apic.ltsys.com.cn:2443/)."""
+        url = server_url.rstrip("/")
+        if url.startswith("https://"):
+            url = url[8:]
+        elif url.startswith("http://"):
+            url = url[7:]
+        if ":" in url:
+            host, port_str = url.split(":", 1)
+            port = int(port_str)
+        else:
+            host = url
+            port = 443
+        return host, port
 
     def _md5_sign(self, data_str):
         return hashlib.md5(data_str.encode("utf-8")).hexdigest().lower()
@@ -128,13 +145,15 @@ class LtechApiClient:
         
         return payload
 
-    def _send_request(self, method, data=None, timeout=60, retry_on_auth_error=True):
+    def _send_request(self, method, data=None, timeout=60, retry_on_auth_error=True, fallback_to_test=True):
+        # Parse host and port from server_url
+        host, port = self._parse_server_url(self.server_url)
         url = f"{self.server_url}{REST_URL}"
         payload = self._build_request(method, data)
         payload_str = json.dumps(payload, separators=(',', ':'))
         
         headers = {
-            "Host": "apic.ltsys.com.cn",
+            "Host": host,
             "Content-Type": "application/json",
             "User-Agent": "SmartHome/3 CFNetwork/3890.100.1 Darwin/27.0.0",
             "Content-Length": str(len(payload_str)),
@@ -153,14 +172,14 @@ class LtechApiClient:
                 sock.settimeout(timeout)
                 
                 try:
-                    sock.connect(("apic.ltsys.com.cn", 2443))
+                    sock.connect((host, port))
                     
                     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
                     ssl_context.check_hostname = False
                     ssl_context.verify_mode = ssl.CERT_NONE
-                    ssl_sock = ssl_context.wrap_socket(sock, server_hostname="apic.ltsys.com.cn")
+                    ssl_sock = ssl_context.wrap_socket(sock, server_hostname=host)
                     
-                    request_line = f"POST /openapi/rest HTTP/1.1\r\n"
+                    request_line = f"POST /{REST_URL} HTTP/1.1\r\n"
                     headers_str = "\r\n".join(f"{k}: {v}" for k, v in headers.items())
                     request = f"{request_line}{headers_str}\r\n\r\n{payload_str}"
                     
@@ -195,7 +214,11 @@ class LtechApiClient:
                     if http_status and http_status != 200:
                         _LOGGER.error(f"[API_HTTP_ERROR] method={method}, HTTP status={http_status}, response={response_str[:300]}")
                         if http_status == 403:
-                            raise LtechApiError(f"API server rejected request (HTTP 403): server may be blocking this IP")
+                            if fallback_to_test and self.server_url != TEST_SERVER_URL:
+                                _LOGGER.warning(f"[API_FALLBACK] Primary server returned 403, falling back to test server: {TEST_SERVER_URL}")
+                                self.server_url = TEST_SERVER_URL
+                                return self._send_request(method, data, timeout, retry_on_auth_error, fallback_to_test=False)
+                            raise LtechApiError(f"API server rejected request (HTTP 403): {self.server_url} is blocking this IP")
 
                     if "\r\n\r\n" in response_str:
                         body_start = response_str.find("\r\n\r\n") + 4
